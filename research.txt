@@ -1,0 +1,1915 @@
+Worked for 14s
+
+Below is a research-backed version that turns the original idea into a buildathon-feasible product, while explicitly accounting for what Razorpay already provides and where your proposal needs differentiation.
+
+Research & Product Proposal
+AI Revenue Intelligence & Growth Agent
+A unified AI agent for detecting, diagnosing, prioritizing, and recovering merchant revenue
+
+Target: Razorpay AI Buildathon 2026
+Primary Track: AI Revenue Recovery
+Secondary Fit: AI Growth & Agentic Commerce
+
+1. Executive Summary
+
+The proposed product is an AI Revenue Intelligence & Growth Agent for Razorpay merchants.
+
+The core problem is not simply that payments fail. Revenue can leak at multiple stages:
+
+Payment failure → checkout drop-off → subscription failure → overdue invoice → customer churn
+
+A merchant may have all the underlying transaction data but still lack the ability to continuously answer:
+
+Where is revenue being lost?
+Why is it being lost?
+How much money is at risk?
+Which intervention is most likely to recover it?
+Should the intervention be automated or require merchant approval?
+Did the intervention actually recover incremental revenue?
+
+The proposed agent closes this loop.
+
+Instead of building another isolated abandoned-cart or subscription-recovery agent, the product should be positioned as a Revenue Recovery Orchestrator that sits above individual workflows.
+
+Razorpay already offers specialized agents for abandoned-cart conversion and subscription recovery, making a standalone implementation of either less differentiated. Razorpay's Agent Studio currently includes agents such as Abandoned Cart Conversion, Subscription Recovery, Dispute Responder, Cashflow Forecaster, RTO Shield and Settlement Insights. 
+R
+Razorpay
++1
+
+Therefore, the strongest buildathon proposition is:
+
+"An AI agent that finds the merchant's highest-value revenue leakage across multiple payment workflows, explains the cause, predicts the best recovery action, executes it within merchant-defined guardrails, and proves how much incremental revenue it recovered."
+
+This aligns extremely closely with Razorpay's 2026 AI Revenue Recovery track, whose stated requirement is to detect revenue at risk, determine the appropriate intervention, execute a bounded recovery workflow, and demonstrate measured money recovered with stopping rules and an audit trail. 
+R
+Razorpay
+
+2. Research Context: What Razorpay Is Asking Builders To Solve
+
+Razorpay's 2026 AI Buildathon explicitly defines the AI Revenue Recovery problem as finding revenue that is slipping away and winning it back.
+
+The official examples include:
+
+Payment degradation → root cause → recovery action
+Checkout drop-off recovery
+Failed-subscription recovery
+B2B receivables chaser
+Mandate retry sequencer
+Hinglish voice recovery
+Promise-to-pay tracker
+
+The judging bar is particularly important:
+
+The system should not merely identify the problem. It should demonstrate measured money recovered across a batch, together with compliant escalation, stopping rules and an audit trail. 
+R
+Razorpay
+
+This changes the product strategy.
+
+A dashboard saying:
+
+"₹5 lakh revenue is at risk"
+
+is not enough.
+
+A stronger product says:
+
+"₹5 lakh is at risk. ₹2.1 lakh is realistically recoverable. The highest-value opportunity is 184 failed payments. The dominant failure reason is repeated UPI/payment-method failure. The best intervention is a retry/payment link within 30 minutes. We recovered ₹1.34 lakh from the eligible cohort, while suppressing 63 customers who had already paid."
+
+That is much closer to the buildathon's intended agentic loop.
+
+3. Razorpay Capability Research
+
+The proposal is technically feasible because Razorpay already exposes the underlying primitives required to construct the system.
+
+3.1 Payments
+
+Razorpay provides APIs to fetch payments, retrieve payment details and capture authorized payments. Payment records contain information such as amount, status and order association. 
+R
+Razorpay
++1
+
+This makes payment-level revenue monitoring feasible.
+
+Useful signals
+Payment amount
+Payment status
+Order ID
+Payment method
+Timestamp
+Failure state
+Authorization/capture state
+Customer association where available
+Agent capability
+
+The agent can calculate:
+
+Failure rate
+Failure amount
+Failure frequency
+Failure trend
+Customer-level failure history
+Payment-method degradation
+Revenue-at-risk
+
+4. Real-Time Event Detection
+
+Razorpay webhooks provide asynchronous notifications for payment, order, settlement, dispute and other workflow events. Razorpay specifically recommends webhooks for automation rather than continuously polling APIs. 
+R
+Razorpay
++1
+
+Important payment events include:
+
+payment.failed
+payment.authorized
+payment.captured
+order.paid
+
+Razorpay also provides subscription and refund webhook events. 
+R
+Razorpay
++2
+
+Proposed solution
+
+Create an Event Intelligence Layer:
+
+Razorpay Webhooks
+        ↓
+Event Normalizer
+        ↓
+Merchant Revenue Graph
+        ↓
+Opportunity Detection Engine
+        ↓
+AI Reasoning Agent
+        ↓
+Intervention Planner
+        ↓
+Action Executor
+        ↓
+Outcome Tracker
+
+
+This allows the agent to react to events rather than waiting for a merchant to open a dashboard.
+
+5. Feature-by-Feature Research and Solution
+Feature 1 — Revenue Leakage Detection
+Problem
+
+Merchants typically see individual payment failures, but an individual failure does not necessarily indicate a business-level revenue problem.
+
+For example:
+
+Monday:
+UPI failures = 4%
+
+Tuesday:
+UPI failures = 7%
+
+Wednesday:
+UPI failures = 13%
+
+Thursday:
+UPI failures = 18%
+
+
+The real problem is not four failed payments.
+
+It is a payment-channel degradation event.
+
+Proposed solution
+
+Build a continuously running Revenue Leakage Detector.
+
+It monitors:
+
+Payment failure rate
+Payment success rate
+Order conversion
+Failed payment amount
+Customer repeat failures
+Subscription payment failures
+Invoice ageing
+Refund trends
+Payment-method performance
+AI output
+🚨 Revenue Opportunity Detected
+
+Problem:
+UPI success rate dropped 16.8% over the last 2 hours.
+
+Affected:
+342 payment attempts
+
+Revenue at risk:
+₹8.7 lakh
+
+Estimated recoverable:
+₹3.1–₹4.0 lakh
+
+Likely cause:
+UPI failure concentration increased among returning customers.
+
+Recommended action:
+Retry + targeted payment link recovery.
+
+Confidence:
+87%
+
+Feasibility
+
+High
+
+Payments APIs and webhooks provide the necessary transaction signals. 
+R
+Razorpay
++1
+
+6. Feature 2 — Revenue-at-Risk Scoring
+
+Not every failed payment deserves equal attention.
+
+A ₹199 failed transaction should not necessarily be prioritized over a ₹1.2 lakh B2B invoice.
+
+Proposed model
+
+Calculate:
+
+Revenue Risk Score =
+Amount at Risk
+× Probability of Recovery
+× Customer Value
+× Urgency
+× Intervention Effectiveness
+
+
+Example:
+
+Opportunity	Amount	Recovery Probability	Priority
+Customer A failed payment	₹800	75%	Low
+Customer B failed payment	₹15,000	82%	Medium
+Enterprise invoice	₹2,00,000	71%	Very High
+Subscription renewal	₹12,000	65%	High
+
+The agent therefore optimizes for expected recovered revenue, not simply number of failures.
+
+7. Feature 3 — Financial Impact Estimation
+
+This is one of the most important differentiators.
+
+Instead of:
+
+"100 customers are affected."
+
+the system should say:
+
+"₹6.2 lakh GMV is exposed."
+
+But even that is insufficient.
+
+The agent should estimate:
+
+Gross Revenue at Risk
+Total eligible transaction value
+
+Expected Recovery
+Revenue at Risk
+× Probability of Successful Recovery
+
+Expected Net Recovery
+Expected Recovery
+- Discounts
+- Communication Cost
+- Incentive Cost
+
+Example
+Revenue at Risk          ₹10,00,000
+Expected recovery rate       38%
+Expected recovery         ₹3,80,000
+Discount cost               ₹30,000
+Communication cost           ₹5,000
+------------------------------------
+Expected net recovery     ₹3,45,000
+
+
+This gives the merchant a financial reason to trust the agent.
+
+8. Feature 4 — Root-Cause Diagnosis
+
+This should be an explicit AI feature.
+
+The agent should not simply say:
+
+"Payment failure increased."
+
+It should investigate why.
+
+Possible root causes
+Specific payment method degradation
+Repeated customer payment failure
+High-value transaction concentration
+Subscription renewal failures
+Checkout friction
+Invoice ageing
+Payment link expiration
+Sudden traffic/customer segment change
+Merchant-side conversion degradation
+AI reasoning flow
+Detect anomaly
+     ↓
+Segment affected transactions
+     ↓
+Compare historical baseline
+     ↓
+Identify abnormal dimensions
+     ↓
+Generate candidate causes
+     ↓
+Rank causes
+     ↓
+Recommend intervention
+
+
+Example:
+
+Root Cause Analysis
+
+Overall failure rate: +11.4%
+
+Highest contribution:
+UPI → +8.2%
+New customers → +5.1%
+Transactions > ₹10,000 → +4.7%
+
+Likely root cause:
+High-value UPI transactions are experiencing abnormal
+failure concentration.
+
+Confidence: 84%
+
+9. Feature 5 — Checkout Abandonment Intelligence
+Important competitive consideration
+
+Razorpay already has an Abandoned Cart Conversion Agent that identifies abandoned carts and re-engages customers through channels such as WhatsApp/email with personalized nudges and offers. 
+R
+Razorpay
++1
+
+Therefore, do not pitch this as your primary innovation.
+
+Instead, use checkout abandonment as one signal inside the broader Revenue Intelligence system.
+
+Differentiation
+
+Existing approach:
+
+Cart abandoned
+      ↓
+Send recovery message
+
+
+Your approach:
+
+Cart abandoned
+      ↓
+Check customer history
+      ↓
+Check cart value
+      ↓
+Check previous conversion behavior
+      ↓
+Check payment failures
+      ↓
+Estimate recovery probability
+      ↓
+Compare available interventions
+      ↓
+Choose best action
+
+
+The product therefore decides whether recovery is worth attempting and how aggressively it should be attempted.
+
+10. Feature 6 — Failed Subscription Intelligence
+
+Razorpay already has a Subscription Recovery Agent that analyzes failed subscription payments, applies retry logic and triggers targeted customer nudges. 
+R
+Razorpay
+
+Again, this should not be the centerpiece.
+
+Instead, your agent should treat subscription failure as one of several revenue opportunities.
+
+Razorpay's subscription APIs expose plans, subscriptions, invoices and subscription operations, while subscription webhooks provide event-level information. 
+R
+Razorpay
++1
+
+Example
+Customer:
+ABC SaaS Pvt Ltd
+
+Subscription:
+₹12,000/month
+
+Failure history:
+2 failed attempts
+
+Customer lifetime value:
+₹1.4 lakh
+
+Predicted churn risk:
+73%
+
+Recommended intervention:
+Retry payment + personalized reminder
+
+Maximum retries:
+2
+
+Escalate after:
+2 failed attempts
+
+
+The key innovation is the cross-workflow customer context.
+
+11. Feature 7 — B2B Receivables Recovery
+
+This is one of the strongest areas for differentiation because Razorpay's buildathon itself lists a B2B receivables chaser as an example direction. 
+R
+Razorpay
+
+Razorpay provides Invoice APIs to create, issue, fetch, update and manage invoices. 
+R
+Razorpay
+
+Proposed capability
+
+The agent continuously monitors:
+
+Invoice issued
+      ↓
+Due date approaching
+      ↓
+Due date passed
+      ↓
+Payment not received
+      ↓
+Customer history evaluated
+      ↓
+Recovery probability calculated
+      ↓
+Follow-up strategy selected
+
+Example
+Invoice: INV-2841
+Amount: ₹4,80,000
+Due: 3 days overdue
+
+Customer history:
+7 previous invoices
+6 paid on time
+1 paid late
+
+Predicted payment probability:
+81%
+
+Action:
+Send polite reminder
+
+Escalation:
+No escalation required
+
+Next check:
+24 hours
+
+
+This is much more sophisticated than sending every customer the same reminder.
+
+12. Feature 8 — Payment Link Recovery
+
+Razorpay Payment Links can be created through APIs and sent through email/SMS. Razorpay provides APIs for creating, fetching, updating, cancelling and notifying customers about Payment Links. 
+R
+Razorpay
++2
+
+This gives the agent a practical recovery mechanism.
+
+Example
+Payment failed
+     ↓
+Determine customer intent
+     ↓
+Generate recovery payment link
+     ↓
+Send notification
+     ↓
+Monitor payment
+     ↓
+Mark opportunity recovered
+
+
+The system can then connect:
+
+Opportunity ID
+      ↓
+Payment Link ID
+      ↓
+Payment ID
+      ↓
+Recovered Amount
+
+
+This creates a clean audit trail.
+
+13. Feature 9 — Customer Intelligence
+
+Razorpay exposes Customer APIs containing customer identity and contact information. 
+R
+Razorpay
++1
+
+Create a lightweight Customer Revenue Profile.
+
+Example:
+
+Customer Profile
+
+Customer:
+CUST_1028
+
+Lifetime Value:
+₹87,500
+
+Orders:
+18
+
+Successful payments:
+16
+
+Failed payments:
+4
+
+Average order value:
+₹4,861
+
+Last purchase:
+3 days ago
+
+Preferred payment method:
+UPI
+
+Recovery probability:
+78%
+
+
+The agent can use this information to avoid treating every customer identically.
+
+14. Feature 10 — Intervention Recommendation Engine
+
+This is the actual "brain" of the product.
+
+For every opportunity, the agent chooses among possible actions.
+
+Possible actions
+A. Do nothing
+B. Retry payment
+C. Send payment link
+D. Send email
+E. Send SMS
+F. Offer approved incentive
+G. Escalate to merchant
+H. Retry invoice collection
+I. Ask customer for payment commitment
+J. Stop recovery attempts
+
+
+The AI should compare expected outcomes.
+
+Example
+Customer A
+
+Option 1:
+Immediate reminder
+Expected recovery = ₹1,800
+
+Option 2:
+Payment link + personalized message
+Expected recovery = ₹2,400
+
+Option 3:
+10% discount
+Expected recovery = ₹2,000 net
+
+Recommended:
+Option 2
+
+
+This is the core difference between an automation workflow and an AI agent.
+
+15. Feature 11 — Intervention Policy Engine
+
+The LLM should NOT have unrestricted authority.
+
+Create a deterministic policy layer around it.
+
+Example merchant rules:
+
+Maximum discount: 10%
+
+Maximum automatic transaction:
+₹25,000
+
+Maximum recovery attempts:
+3
+
+Minimum customer confidence:
+70%
+
+No contact after:
+10 PM
+
+Escalate transactions above:
+₹1,00,000
+
+
+The LLM proposes an action.
+
+The policy engine validates it.
+
+LLM
+ ↓
+Proposed Action
+ ↓
+Policy Validator
+ ↓
+Approved?
+ ├── YES → Execute
+ └── NO  → Human approval
+
+
+This aligns with Razorpay Agent Studio's emphasis on merchant-defined boundaries, action validation, review-first workflows and audit trails. 
+R
+Razorpay
+
+16. Feature 12 — Human-in-the-Loop Approval
+
+Not every financial action should be autonomous.
+
+Three operating modes
+Mode 1 — Observe
+
+Agent only detects and recommends.
+
+"₹4.8L is at risk.
+Recommended action: payment link."
+
+Mode 2 — Review
+
+Agent prepares everything but waits for approval.
+
+[Approve] [Reject] [Modify]
+
+Mode 3 — Autonomous
+
+Agent executes pre-approved low-risk actions automatically.
+
+This is particularly important for a fintech product.
+
+17. Feature 13 — Stopping Rules
+
+This is explicitly important for the buildathon.
+
+An agent that keeps messaging customers indefinitely is not a good recovery agent.
+
+Example stopping rules
+
+Stop when:
+
+Payment succeeds
+Customer declines
+Maximum attempts reached
+Recovery probability falls below threshold
+Customer requests no further contact
+Offer budget is exhausted
+Opportunity expires
+Merchant-defined limit is reached
+
+Example:
+
+Attempt 1 → Email
+        ↓
+No response
+
+Attempt 2 → Payment link
+        ↓
+No response
+
+Attempt 3 → Final reminder
+        ↓
+No response
+
+STOP
+
+Reason:
+Maximum recovery attempts reached.
+
+18. Feature 14 — Explainable AI
+
+Every recommendation should have a reason.
+
+Bad:
+
+"Recommended: retry."
+
+Good:
+
+"Retry recommended because this customer has successfully completed 8 of 9 previous payments after a retry, and the current failed transaction is within their normal purchase range."
+
+Explanation structure
+WHY?
+Customer historically recovers after retry.
+
+WHAT?
+Send payment link.
+
+EXPECTED IMPACT?
+₹8,400 expected recovery.
+
+CONFIDENCE?
+82%.
+
+RISK?
+Low.
+
+WHY NOT DISCOUNT?
+Historical recovery occurs without incentives.
+
+
+This directly supports Razorpay's requirement that money actions be explainable and bounded. 
+R
+Razorpay
+
+19. Feature 15 — Revenue Opportunity Prioritization
+
+The dashboard should not become another analytics dashboard with 50 charts.
+
+The main screen should answer:
+
+"What should I do right now?"
+
+Example:
+
+Revenue Opportunities
+Priority	Opportunity	Revenue at Risk	Expected Recovery	Action
+🔴 1	Payment degradation	₹8.7L	₹3.8L	Investigate
+🔴 2	Overdue invoices	₹5.2L	₹3.1L	Chase
+🟠 3	Failed renewals	₹2.8L	₹1.4L	Retry
+🟡 4	Checkout drop-off	₹1.6L	₹0.7L	Recover
+
+The ranking should be based on expected incremental revenue, not merely transaction count.
+
+20. Feature 16 — Revenue Command Center
+
+The merchant dashboard should have four primary sections.
+
+A. Revenue at Risk
+₹18.4L
+
+B. Expected Recoverable
+₹7.2L
+
+C. Recovered
+₹4.1L
+
+D. Agent Performance
+Recovery Rate: 31%
+Interventions: 482
+Successful Recoveries: 149
+False Recommendations: 21
+
+21. Feature 17 — Recovery Attribution
+
+This is critical for proving value.
+
+Suppose a customer pays after receiving an agent message.
+
+The system needs to distinguish:
+
+Recovered revenue
+vs.
+Revenue that would have happened anyway
+
+
+For the buildathon, this can be demonstrated through a synthetic controlled experiment.
+
+Recommended approach
+
+Create:
+
+Control Group
+vs.
+Agent Group
+
+
+Then compare:
+
+Conversion rate
+Average recovered amount
+Recovery rate
+Net revenue
+Intervention cost
+
+
+Example:
+
+Control conversion:
+8.2%
+
+Agent conversion:
+14.7%
+
+Incremental conversion:
++6.5 percentage points
+
+
+Then calculate:
+
+Incremental Revenue =
+Agent Group Revenue
+-
+Expected Control Revenue
+
+
+This is much stronger evidence than claiming that every post-message payment was caused by AI.
+
+22. Feature 18 — Adaptive Learning
+
+The agent should learn which interventions work for which customer segments.
+
+Example:
+
+Segment	Best Intervention
+Repeat customers	Payment link
+High-value customers	Human escalation
+Subscription users	Retry
+Invoice customers	Reminder sequence
+New customers	Personalized recovery
+Price-sensitive users	Approved incentive
+
+Initially, use a simple scoring model.
+
+Later, the system can evolve toward:
+
+Logistic regression
+Gradient boosting
+Contextual bandits
+Uplift modelling
+Reinforcement learning
+
+For the buildathon, do not over-engineer this.
+
+A transparent baseline model plus strong evaluation is better than an unexplained "AI model."
+
+23. Feature 19 — Campaign Orchestration
+
+Instead of manually configuring workflows, merchants can tell the agent:
+
+"Recover failed payments above ₹2,000, but don't offer discounts to existing customers."
+
+The agent converts this into:
+
+Trigger:
+payment.failed
+
+Condition:
+amount > ₹2,000
+
+Customer:
+existing customer
+
+Action:
+payment link
+
+Discount:
+none
+
+Max attempts:
+2
+
+Escalation:
+merchant approval
+
+
+This is a strong Agent Studio-style experience because Razorpay's Agent Studio is designed around agents that can be customized with workflows, tools and business logic. 
+R
+Razorpay
+
+24. Feature 20 — Natural Language Revenue Analyst
+
+The merchant should also be able to ask:
+
+"Why did revenue fall yesterday?"
+
+The agent responds:
+
+Revenue decreased 12.4% yesterday.
+
+Primary causes:
+
+1. UPI payment success declined by 9.1%
+2. High-value transactions above ₹20K had 2.3×
+   higher failure rates.
+3. 74 invoices became overdue.
+
+Estimated revenue impact:
+₹11.8L
+
+Highest-impact recovery action:
+Recover high-value failed payments.
+
+Expected recoverable:
+₹4.2L
+
+
+This turns the product from a passive dashboard into an actual revenue operating agent.
+
+25. Feature 21 — Audit Trail
+
+Every agent action should produce a record.
+
+Opportunity ID
+Customer ID
+Detected At
+Reason
+Revenue at Risk
+Recommended Action
+Model Confidence
+Policy Check
+Merchant Approval
+Action Executed
+Result
+Recovered Amount
+Final Status
+
+
+Example:
+
+Opportunity:
+OPP_821
+
+Detected:
+14:31:02
+
+Cause:
+Payment failure
+
+Amount:
+₹7,500
+
+Recommendation:
+Create Payment Link
+
+Confidence:
+84%
+
+Policy:
+Approved
+
+Action:
+Payment Link created
+
+Customer:
+Paid
+
+Recovered:
+₹7,500
+
+Status:
+RECOVERED
+
+
+Razorpay explicitly emphasizes auditability and visibility into what agents did, when they did it and why. 
+R
+Razorpay
+
+26. Feature 22 — Failure Handling
+
+The buildathon specifically expects a failure to be handled gracefully.
+
+Design one obvious failure scenario.
+
+Example
+
+Agent attempts to create a payment link.
+
+Create Payment Link
+        ↓
+API Failure
+        ↓
+Retry once
+        ↓
+Still failed
+        ↓
+Do not repeatedly retry
+        ↓
+Escalate
+
+
+Merchant sees:
+
+Recovery action failed.
+
+Reason:
+Payment Link API unavailable.
+
+No customer was contacted.
+
+Opportunity preserved.
+
+Recommended next step:
+Retry manually.
+
+
+This demonstrates agent reliability rather than only the happy path.
+
+27. Feature 23 — Duplicate Prevention
+
+A major fintech requirement.
+
+Imagine:
+
+payment.failed
+payment.failed
+payment.failed
+
+
+The agent must not send three messages automatically.
+
+Create an Opportunity ID + idempotency layer.
+
+Same Customer
++
+Same Order
++
+Same Failure Window
+=
+Same Recovery Opportunity
+
+
+This prevents duplicate interventions.
+
+Razorpay's API documentation also provides idempotent refund operations, illustrating the importance of safe repeated requests in financial workflows. 
+R
+Razorpay
+
+28. Feature 24 — Customer Contact Frequency Control
+
+The system should maintain:
+
+Last contact
+Contact count
+Channel
+Response
+Customer preference
+Current opportunity
+
+
+Example:
+
+Customer contacted:
+Today 10:30 AM
+
+Response:
+No response
+
+Do not contact again:
+Before tomorrow
+
+
+This prevents the agent from becoming spammy.
+
+29. Feature 25 — Privacy and Data Boundaries
+
+This is particularly important because the system processes financial and customer information.
+
+Razorpay states that Agent Studio agents operate on verified merchant data, with permission boundaries, platform validation and merchant-specific data scoping. 
+R
+Razorpay
+
+Your architecture should follow the same principle:
+
+Merchant A
+   ↓
+Merchant A Data Namespace
+   ↓
+Merchant A Agent
+
+
+Never allow:
+
+Merchant A data
+        ↓
+Merchant B agent
+
+
+The LLM should receive only the minimum information required for the decision.
+
+30. Technical Architecture
+Proposed Architecture
+                  ┌────────────────────────┐
+                  │   Razorpay APIs        │
+                  │ Payments / Orders      │
+                  │ Customers / Invoices   │
+                  │ Subscriptions          │
+                  │ Payment Links          │
+                  └───────────┬────────────┘
+                              │
+                              ▼
+                  ┌────────────────────────┐
+                  │ Razorpay Webhooks      │
+                  │ Event Ingestion        │
+                  └───────────┬────────────┘
+                              │
+                              ▼
+                  ┌────────────────────────┐
+                  │ Revenue Event Store     │
+                  │ PostgreSQL              │
+                  └───────────┬────────────┘
+                              │
+                              ▼
+                  ┌────────────────────────┐
+                  │ Opportunity Detector   │
+                  │ Rules + ML             │
+                  └───────────┬────────────┘
+                              │
+                              ▼
+                  ┌────────────────────────┐
+                  │ Revenue Intelligence   │
+                  │ Agent / LLM            │
+                  └───────────┬────────────┘
+                              │
+                  ┌───────────┴───────────┐
+                  ▼                       ▼
+        ┌──────────────────┐    ┌──────────────────┐
+        │ Policy Engine    │    │ Impact Predictor │
+        │ Guardrails       │    │ Recovery Score   │
+        └────────┬─────────┘    └────────┬─────────┘
+                 │                       │
+                 └───────────┬───────────┘
+                             ▼
+                  ┌────────────────────────┐
+                  │ Intervention Executor  │
+                  └───────────┬────────────┘
+                              │
+            ┌─────────────────┼──────────────────┐
+            ▼                 ▼                  ▼
+      Payment Link       Email/SMS          Merchant Approval
+            │                 │                  │
+            └─────────────────┼──────────────────┘
+                              ▼
+                  ┌────────────────────────┐
+                  │ Outcome Tracker        │
+                  │ Recovered Revenue      │
+                  │ Experiments            │
+                  │ Audit Trail            │
+                  └────────────────────────┘
+
+
+Razorpay's APIs support orders, payments, customers, subscriptions, invoices, refunds and payment links, while webhooks provide event-driven integration. 
+R
+Razorpay
++5
+
+31. AI Architecture
+
+The LLM should NOT directly control Razorpay APIs.
+
+Use a three-layer agent architecture.
+
+Layer 1 — Detection
+
+Traditional code + statistical models:
+
+Anomaly detection
+Thresholds
+Time-series comparison
+Segmentation
+Risk scoring
+
+Layer 2 — Reasoning
+
+LLM:
+
+Interpret signals
+Explain root cause
+Compare interventions
+Generate recommendation
+Explain recommendation
+
+Layer 3 — Execution
+
+Deterministic tools:
+
+create_payment_link()
+send_notification()
+fetch_payment()
+fetch_invoice()
+fetch_subscription()
+record_action()
+request_approval()
+
+
+This makes the system much safer and easier to demonstrate.
+
+32. Recommended Agent Tool Set
+
+The agent can expose tools such as:
+
+fetch_payments()
+fetch_payment()
+fetch_orders()
+fetch_customers()
+fetch_invoices()
+fetch_subscriptions()
+fetch_refunds()
+
+create_payment_link()
+send_payment_link()
+
+get_revenue_metrics()
+get_customer_history()
+get_opportunity_history()
+
+calculate_recovery_probability()
+calculate_expected_revenue()
+
+request_merchant_approval()
+execute_recovery_action()
+
+record_audit_event()
+
+
+Razorpay's MCP tooling documentation also shows an existing set of payment, order, payment-link, customer and refund tools, making this tool-oriented architecture conceptually aligned with Razorpay's agent ecosystem. 
+R
+Razorpay
+
+33. What Should Be the Actual MVP?
+
+Do not build every feature above for the hackathon.
+
+The strongest MVP should contain five capabilities.
+
+MVP 1 — Detect
+
+Detect:
+
+Failed payments
+Payment degradation
+Overdue invoices
+MVP 2 — Diagnose
+
+Explain:
+
+What happened?
+Which customers are affected?
+Why?
+How much revenue is at risk?
+MVP 3 — Prioritize
+
+Calculate:
+
+Revenue at Risk
+Expected Recovery
+Recovery Probability
+Priority
+
+MVP 4 — Act
+
+Execute:
+
+Payment Link recovery
+Notification
+Merchant approval
+MVP 5 — Prove
+
+Show:
+
+Recovered Revenue
+Recovery Rate
+Incremental Revenue
+Failed Actions
+Stopping Rules
+Audit Trail
+
+
+That is enough to demonstrate a complete agentic loop.
+
+34. Recommended Initial Workflow
+
+The most compelling demo scenario is:
+
+"Payment degradation → root cause → recovery"
+Step 1
+
+Synthetic merchant receives 1,000 transactions.
+
+Step 2
+
+A payment-method failure spike is injected.
+
+Normal failure rate: 4%
+Current failure rate: 19%
+
+Step 3
+
+Agent detects the anomaly.
+
+Step 4
+
+Agent calculates:
+
+Affected transactions: 183
+Revenue at risk: ₹7.4L
+
+Step 5
+
+Agent investigates.
+
+UPI:
++14% failure
+
+Cards:
++1.2%
+
+Netbanking:
+Normal
+
+Step 6
+
+Agent recommends recovery.
+
+High-value customers:
+Payment link
+
+Low-value customers:
+Automatic retry
+
+Very-high-value:
+Merchant approval
+
+Step 7
+
+Agent executes bounded actions.
+
+Step 8
+
+Payments arrive.
+
+Step 9
+
+Agent records:
+
+Attempted recovery:
+₹7.4L
+
+Recovered:
+₹3.2L
+
+Recovery rate:
+43.2%
+
+Step 10
+
+Dashboard explains the result.
+
+This directly demonstrates the buildathon's "detect → diagnose → choose → execute → measure" expectation. 
+R
+Razorpay
+
+35. Secondary Demo Scenario — Overdue Invoice Recovery
+
+Use this as the second workflow.
+
+100 invoices
+        ↓
+17 overdue
+        ↓
+₹12.4L outstanding
+        ↓
+Customer history analysis
+        ↓
+Risk scoring
+        ↓
+Segment customers
+        ↓
+Personalized recovery
+        ↓
+Payment Link / reminder
+        ↓
+Payment received
+        ↓
+Revenue recovered
+
+
+This gives the project another revenue-recovery category without competing directly with Razorpay's existing abandoned-cart agent.
+
+36. What NOT To Build
+
+Several ideas sound impressive but would weaken the project.
+
+Don't make it only an analytics dashboard
+
+A dashboard does not satisfy the agentic requirement strongly enough.
+
+Don't build only abandoned-cart recovery
+
+Razorpay already has this capability. 
+R
+Razorpay
+
+Don't build only subscription recovery
+
+Razorpay already has a dedicated Subscription Recovery Agent. 
+R
+Razorpay
+
+Don't make the LLM responsible for every decision
+
+Financial actions need deterministic validation and guardrails.
+
+Don't claim revenue was recovered merely because a customer paid after a message
+
+Use control/holdout experimentation or clearly label the result as attributed versus observed.
+
+Don't build a huge ML model
+
+The buildathon rewards evidence and working execution. A transparent model with strong evaluation is preferable.
+
+37. Feasibility Matrix
+Feature	Razorpay Data/API	Buildathon Feasibility	Priority
+Payment failure detection	Yes	Very High	P0
+Payment degradation detection	Yes	Very High	P0
+Revenue-at-risk calculation	Yes	Very High	P0
+Root-cause analysis	Yes + ML	High	P0
+Recovery scoring	Yes + synthetic data	High	P0
+Payment-link recovery	Yes	Very High	P0
+Audit trail	Application layer	Very High	P0
+Guardrails	Application layer	Very High	P0
+Merchant approval	Application layer	Very High	P0
+Overdue invoice recovery	Yes	Very High	P1
+Subscription recovery	Yes	High	P1
+Customer segmentation	Yes	High	P1
+Checkout abandonment	Conditional	Medium	P1
+WhatsApp recovery	Connector/external integration	Medium	P2
+Voice recovery	External voice provider	Medium	P2
+Advanced reinforcement learning	Application layer	Low for MVP	P3
+Fully autonomous discounts	Risky	Low	Avoid
+
+Razorpay's API surface includes the core entities required for the P0/P1 design, including payments, orders, customers, invoices, subscriptions and payment links. 
+R
+Razorpay
++4
+
+38. Differentiation Against Razorpay's Existing Agent Studio
+
+This is arguably the most important strategic section.
+
+Razorpay already has specialized agents.
+
+Existing Razorpay Capability	Your Product
+Subscription Recovery	Decides whether subscription recovery is the best opportunity
+Abandoned Cart	Compares cart recovery with other revenue opportunities
+Cashflow Forecaster	Focuses on recoverable revenue, not only forecasting
+Settlement Insights	Converts financial signals into recovery actions
+Dispute Responder	Can treat disputes as a revenue-risk signal
+Individual agents	Cross-workflow orchestration
+
+Therefore:
+
+You are not building another specialist agent. You are building the intelligence layer that decides which specialist recovery action should happen next.
+
+This is the strongest positioning.
+
+39. Product Positioning
+Weak positioning
+
+"AI agent that recovers failed payments."
+
+Too narrow.
+
+Better positioning
+
+"AI agent that identifies failed payments and recovers them."
+
+Still somewhat narrow.
+
+Strong positioning
+
+"AI Revenue Recovery Orchestrator that continuously finds the highest-value revenue leakage across a merchant's payment workflows, predicts the best recovery action, executes it within guardrails, and measures incremental revenue recovered."
+
+This is more defensible and fits the buildathon extremely well.
+
+40. Suggested Product Name
+
+Possible names:
+
+RevenueOS Agent
+
+"Your autonomous revenue recovery layer."
+
+RevPilot
+
+"Find lost revenue. Recover it automatically."
+
+Razorpay Revenue Intelligence Agent
+
+Straightforward and enterprise-friendly.
+
+RevRecover AI
+
+Simple but less differentiated.
+
+Revenue Copilot
+
+Good for a human-in-the-loop positioning.
+
+Recommended
+
+Razorpay Revenue Intelligence Agent
+
+with the internal engine named:
+
+Opportunity Engine
+
+41. Core Product Loop
+
+The entire product can be summarized in one loop:
+
+OBSERVE
+   ↓
+Detect revenue leakage
+   ↓
+DIAGNOSE
+   ↓
+Find root cause
+   ↓
+ESTIMATE
+   ↓
+Calculate revenue at risk
+   ↓
+PRIORITIZE
+   ↓
+Select highest expected recovery
+   ↓
+DECIDE
+   ↓
+Choose intervention
+   ↓
+GUARD
+   ↓
+Validate policy
+   ↓
+ACT
+   ↓
+Execute recovery
+   ↓
+MEASURE
+   ↓
+Calculate recovered revenue
+   ↓
+LEARN
+   ↓
+Improve future recommendations
+
+
+This is the central architecture that should appear in the pitch.
+
+42. Evaluation Framework
+
+The buildathon requires measurable outcomes.
+
+Your evaluation should contain at least four metrics.
+
+Metric 1 — Detection Precision
+Correct revenue opportunities
+/
+All detected opportunities
+
+Metric 2 — Recovery Rate
+Recovered opportunities
+/
+Eligible opportunities
+
+Metric 3 — Recovery Value
+Total recovered ₹
+
+Metric 4 — Incremental Revenue
+Agent cohort revenue
+-
+Expected control cohort revenue
+
+
+Also report:
+
+False positive rate
+Incorrect recommendations
+Failed actions
+Duplicate actions prevented
+Average intervention attempts
+
+43. Synthetic Dataset Design
+
+Since the buildathon is based on Razorpay test-mode APIs, construct a synthetic merchant environment.
+
+Suggested dataset:
+
+10,000 payments
+2,000 customers
+5,000 orders
+500 invoices
+500 subscription events
+1,000 recovery opportunities
+
+
+Inject known scenarios:
+
+Scenario A
+
+Payment degradation.
+
+Scenario B
+
+High-value failed payments.
+
+Scenario C
+
+Overdue invoices.
+
+Scenario D
+
+Repeat customer failure.
+
+Scenario E
+
+Customer who should NOT be contacted.
+
+Scenario F
+
+API/action failure.
+
+Scenario G
+
+Customer who pays naturally without intervention.
+
+The last scenario is essential for demonstrating that your system understands attribution.
+
+44. Demo Dataset Example
+Customer: C1023
+Order: O7821
+Amount: ₹12,500
+
+Payment:
+FAILED
+
+Customer history:
+14 successful
+2 failed
+1 recovery after payment link
+
+AI prediction:
+78% recovery probability
+
+Revenue at risk:
+₹12,500
+
+Recommended:
+Payment link
+
+Expected recovery:
+₹9,750
+
+Policy:
+Approved
+
+Action:
+Payment link generated
+
+Outcome:
+Payment captured
+
+Recovered:
+₹12,500
+
+
+The dashboard then shows:
+
+Opportunity: RECOVERED
+Expected: ₹9,750
+Actual: ₹12,500
+Variance: +₹2,750
+
+45. Security and Reliability Requirements
+
+For a fintech agent, these should be demonstrated explicitly.
+
+API security
+Keep Razorpay secrets server-side.
+Never expose API secrets to frontend.
+Verify webhook signatures.
+Use HTTPS.
+Store secrets in environment variables.
+
+Razorpay's integration documentation explicitly requires server-side signature verification and protection of API secrets. 
+R
+Razorpay
+
+Webhook security
+Verify webhook signatures.
+Handle duplicate events.
+Process asynchronously.
+Return successful webhook acknowledgement quickly.
+
+Razorpay documents asynchronous webhook processing and recommends using webhooks as the primary mechanism for automation. 
+R
+Razorpay
+
+Agent security
+Tool allowlist
+Amount limits
+Approval thresholds
+Customer contact limits
+Action logging
+Idempotency
+Kill switch
+46. Final Recommended Scope
+P0 — Must Build
+Payment event ingestion
+Revenue leakage detector
+Revenue-at-risk calculator
+Root-cause analysis
+Recovery probability
+Opportunity prioritization
+Payment-link recovery
+Merchant approval
+Policy/guardrail engine
+Audit trail
+Recovery measurement
+Failure handling
+P1 — Build if time permits
+Invoice recovery
+Subscription signals
+Customer segmentation
+Natural-language analytics
+A/B/control-group evaluation
+P2 — Demo/mock only
+WhatsApp
+Voice
+Advanced campaign orchestration
+Contextual bandits
+Multi-agent marketplace integration
+47. Final Product Definition
+AI Revenue Intelligence & Growth Agent
+
+Input
+
+Payments
+Orders
+Customers
+Invoices
+Subscriptions
+Webhooks
+
+
+Intelligence
+
+Anomaly detection
+Root-cause analysis
+Revenue-risk scoring
+Recovery prediction
+Intervention selection
+
+
+Actions
+
+Payment link
+Notification
+Retry
+Merchant approval
+Escalation
+
+
+Controls
+
+Guardrails
+Stopping rules
+Approval thresholds
+Idempotency
+Audit logs
+
+
+Output
+
+Revenue at risk
+Expected recovery
+Actual recovery
+Incremental revenue
+Agent performance
+
+48. One-Line Pitch
+
+"An autonomous Revenue Intelligence Agent that continuously finds where a merchant is losing money, explains why, predicts the best recovery action, executes it safely, and proves how much incremental revenue it recovered."
+
+49. 30-Second Pitch
+
+"Merchants don't lose revenue in one place. They lose it through failed payments, checkout drop-offs, subscription failures and overdue invoices. Razorpay already has specialized agents for some of these workflows. Our product is the intelligence layer above them. It continuously monitors a merchant's payment signals, detects revenue leakage, diagnoses the root cause, estimates the recoverable amount, chooses the highest-impact intervention, executes it within merchant-defined guardrails, and measures the actual incremental revenue recovered. Instead of another dashboard or another single-purpose agent, we're building an autonomous revenue recovery decision engine."
+
+50. Why This Has Strong Buildathon Potential
+
+The proposal matches the official AI Revenue Recovery track almost one-to-one:
+
+Detect revenue at risk
+→ Revenue Leakage Detector
+
+Determine the intervention
+→ Intervention Recommendation Engine
+
+Execute bounded recovery
+→ Payment Links + notification + approval engine
+
+Measure money recovered
+→ Recovery Attribution Engine
+
+Compliant escalation
+→ Human-in-the-loop
+
+Stopping rules
+→ Recovery Policy Engine
+
+Audit trail
+→ Agent Action Ledger
+
+The key is to demonstrate the complete loop rather than merely presenting AI-generated recommendations. Razorpay's official buildathon brief explicitly states that the bar is measured money recovered across a batch, with compliant escalation, stopping rules and an audit trail. 
+R
+Razorpay
+
+51. Final Recommendation
+
+The original concept is feasible, but I would change its scope and positioning.
+
+Do not present it as:
+
+"AI agent for abandoned carts, subscriptions and payment failures."
+
+That puts you directly against existing Razorpay agents.
+
+Present it as:
+
+"The Revenue Opportunity Orchestrator — an AI intelligence layer that decides which revenue leakage should be recovered first, why, how, and whether the intervention actually generated incremental revenue."
+
+The killer demo should therefore be:
+
+Razorpay transaction stream
+          ↓
+Revenue leakage detected
+          ↓
+₹7.4L revenue at risk
+          ↓
+AI diagnoses payment degradation
+          ↓
+Segments affected customers
+          ↓
+Predicts recovery probability
+          ↓
+Ranks interventions
+          ↓
+Generates payment links
+          ↓
+Applies merchant guardrails
+          ↓
+Recovers ₹3.2L
+          ↓
+Shows incremental recovery
+          ↓
+Explains every decision
+
+
+That gives you something more compelling than a generic "AI growth agent":
+
+A measurable, explainable, bounded, agentic revenue-recovery system built directly around Razorpay's payment infrastructure.
+
+Primary official references
+Razorpay AI Buildathon 2026 — official tracks and evaluation bar.
+Razorpay Agent Studio — current Agent Studio capabilities and existing agents.
+Razorpay Agent Studio: Principles, Guardrails, and Merchant Control — agent permissions, validation, merchant control and auditability.
+Razorpay Payments API documentation — payment data and actions.
+Razorpay Webhooks documentation — event-driven architecture.
+Razorpay Subscription APIs — subscription workflows.
+Razorpay Invoice APIs — receivables workflows.
+Razorpay Payment Link APIs — practical payment recovery mechanism.
+Razorpay Customer APIs — customer-level intelligence.
+Razorpay MCP Tools Reference — agent/tool-oriented access to Razorpay capabilities.
+:::
+R
+Sources
