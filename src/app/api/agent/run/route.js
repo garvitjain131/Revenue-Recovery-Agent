@@ -10,7 +10,7 @@ import { NextResponse } from 'next/server';
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { merchant_id = 'merchant_demo', trigger = 'manual' } = body;
+    const { merchant_id = 'merchant_rzp_test', trigger = 'manual' } = body;
 
     const orchestrator = require('@/lib/agent-orchestrator');
     const result = await orchestrator.executeAgentRun(merchant_id, trigger);

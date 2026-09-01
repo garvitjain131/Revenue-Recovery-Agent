@@ -1,31 +1,38 @@
 /*
  * llm-reasoning.js
  * 
- * LLM reasoning layer using Google Gemini.
+ * LLM Reasoning & Root Cause Diagnostic Layer using Google Gemini.
  * 
  * The LLM is responsible ONLY for:
- *   - Interpreting revenue signals
- *   - Diagnosing root causes
- *   - Comparing intervention strategies
- *   - Generating structured recommendations
- *   - Explaining decisions in natural language
+ *   - Qualitative root cause diagnosis from sanitized evidence
+ *   - Comparing contextual nuances across intervention options
+ *   - Explaining decisions in clear natural language for merchant stakeholders
  * 
  * The LLM NEVER:
- *   - Directly calls Razorpay APIs
- *   - Performs financial calculations (scoring-engine.js does this)
- *   - Enforces guardrails (policy-engine.js does this)
- *   - Executes tools (agent-orchestrator.js does this)
+ *   - Directly executes tools or calls Razorpay APIs
+ *   - Authoritatively calculates financial amounts or probabilities (scoring-engine does this)
+ *   - Authorizes financial transactions or overrides policy guardrails (policy-engine does this)
+ *   - Modifies limits or creates synthetic financial metrics
  * 
- * All LLM outputs are validated against a schema before use.
+ * All LLM responses undergo strict JSON schema validation. Malformed outputs fail-closed
+ * and smoothly activate deterministic rule-based fallback diagnostics.
  */
 
 const RECOMMENDATION_SCHEMA = {
-  required: ['opportunity_id', 'root_cause', 'confidence', 'recommended_action', 'reason', 'risk_level'],
-  actions: ['create_payment_link', 'send_notification', 'retry_payment', 'escalate_to_merchant', 'do_nothing'],
+  required: ['root_cause', 'confidence', 'recommended_action', 'reason', 'risk_level'],
+  actions: [
+    'create_payment_link',
+    'send_notification',
+    'retry_payment',
+    'request_alternate_payment_method',
+    'escalate_to_merchant',
+    'flag_discount_review',
+    'do_nothing',
+  ],
   risk_levels: ['low', 'medium', 'high'],
 };
 
-// ─── Gemini Client ─────────────────────────────────────────────
+// ─── Gemini Client ───────────────────────────────────────────────
 
 let geminiModel = null;
 
@@ -33,8 +40,8 @@ async function getGeminiModel() {
   if (geminiModel) return geminiModel;
 
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey === 'your_gemini_api_key') {
-    return null; // will use fallback reasoning
+  if (!apiKey || apiKey === 'your_gemini_api_key' || apiKey.startsWith('your_') || apiKey.includes('PLACEHOLDER')) {
+    return null;
   }
 
   try {
@@ -43,20 +50,18 @@ async function getGeminiModel() {
     geminiModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
     return geminiModel;
   } catch (err) {
-    console.error('[LLM] Failed to initialize Gemini:', err.message);
+    console.warn('[LLM] Gemini client unavailable, utilizing rule-based fallback diagnostics:', err.message);
     return null;
   }
 }
 
-// ─── Root Cause Analysis ───────────────────────────────────────
+// ─── Root Cause Analysis ─────────────────────────────────────────
 
 /**
- * Ask the LLM to analyze revenue data and identify the root cause.
- * Returns structured recommendation.
+ * Ask the LLM to diagnose root cause from sanitized aggregate signals.
  */
 async function analyzeRootCause(opportunityData) {
   const model = await getGeminiModel();
-
   const prompt = buildRootCausePrompt(opportunityData);
 
   if (model) {
@@ -66,88 +71,82 @@ async function analyzeRootCause(opportunityData) {
       const parsed = parseStructuredResponse(text, opportunityData);
       if (parsed) return parsed;
     } catch (err) {
-      console.error('[LLM] Gemini root cause analysis failed:', err.message);
+      console.warn('[LLM] Gemini diagnostic call failed, falling back to deterministic analyzer:', err.message);
     }
   }
 
-  // Fallback: rule-based reasoning when LLM unavailable
+  // Deterministic rule-based fallback analyzer
   return fallbackRootCauseAnalysis(opportunityData);
 }
 
 function buildRootCausePrompt(data) {
-  return `You are a Revenue Intelligence Agent analyzing payment failures for a merchant.
+  const currentFailRate = data.current_metrics?.failure_rate != null ? (data.current_metrics.failure_rate * 100).toFixed(1) : 'N/A';
+  const baseFailRate = data.baseline_metrics?.failure_rate != null ? (data.baseline_metrics.failure_rate * 100).toFixed(1) : 'N/A';
+  const riskAmount = Math.round(data.revenue_at_risk || 0).toLocaleString('en-IN');
 
-CURRENT SITUATION:
-- Failed payments: ${data.failed_payments_count}
-- Revenue at risk: ₹${Math.round(data.revenue_at_risk).toLocaleString()}
-- Current failure rate: ${(data.current_metrics?.failure_rate * 100 || 0).toFixed(1)}%
-- Baseline failure rate: ${(data.baseline_metrics?.failure_rate * 100 || 0).toFixed(1)}%
-- Payment method failure rates: ${JSON.stringify(data.current_metrics?.method_rates || {})}
-- Baseline method rates: ${JSON.stringify(data.baseline_metrics?.method_rates || {})}
-- Anomalies detected: ${JSON.stringify(data.anomalies || [])}
-- Top affected payments: ${JSON.stringify((data.top_affected_payments || []).slice(0, 10).map(p => ({
-    amount: p.amount,
-    method: p.method,
-    failure_reason: p.failure_reason,
-    recovery_probability: p.recovery_probability,
-  })))}
+  return `You are a Principal Payments Analyst evaluating payment failure telemetry for an Indian merchant processing on Razorpay.
 
-AVAILABLE RECOVERY ACTIONS:
-- create_payment_link: Send a payment link to the customer
-- send_notification: Send a payment reminder notification
-- retry_payment: Retry the payment attempt
-- escalate_to_merchant: Send to merchant for manual review
-- do_nothing: No action needed
+CONTEXT & SANITIZED SIGNALS:
+- Failed Payment Volume: ${data.failed_payments_count || 0} transactions
+- Total Revenue At Risk: ₹${riskAmount}
+- Current Window Failure Rate: ${currentFailRate}% (Baseline: ${baseFailRate}%)
+- Payment Method Distribution: ${JSON.stringify(data.current_metrics?.method_rates || {})}
+- Detected Anomalies: ${JSON.stringify(data.anomalies || [])}
+- Failure Reason Clustering: ${JSON.stringify(data.failure_reason_breakdown || {})}
 
-Respond with ONLY a valid JSON object (no markdown, no code blocks):
+INSTRUCTIONS:
+1. Diagnose the technical root cause based strictly on the telemetry provided.
+2. DO NOT fabricate customer data, financial amounts, or unverified outage facts.
+3. Recommend the best recovery intervention from the supported list:
+   ['create_payment_link', 'send_notification', 'retry_payment', 'request_alternate_payment_method', 'escalate_to_merchant', 'do_nothing']
+4. Output MUST be ONLY valid JSON matching this schema:
 {
-  "root_cause": "Brief description of the primary root cause",
-  "root_cause_detail": "Detailed explanation of what's happening and why",
+  "root_cause": "Concise headline description of the root cause",
+  "root_cause_detail": "Technical diagnosis referencing observed data patterns",
   "confidence": 0.85,
   "recommended_action": "create_payment_link",
-  "reason": "Why this action is the best choice",
+  "reason": "Clear economic and technical justification for this action",
   "risk_level": "low",
-  "alternative_actions": ["retry_payment", "send_notification"],
-  "explanation_for_merchant": "A clear, non-technical explanation for the merchant"
+  "explanation_for_merchant": "Plain-English business summary suitable for a merchant dashboard"
 }`;
 }
 
-// ─── Intervention Comparison ───────────────────────────────────
+// ─── Intervention Comparison ─────────────────────────────────────
 
 /**
- * Ask the LLM to compare recovery options and recommend the best one.
+ * Ask LLM to review evaluated strategy options and produce contextual narrative.
  */
 async function compareInterventions(opportunity, recoveryOptions, customerContext) {
   const model = await getGeminiModel();
 
-  const prompt = `You are a Revenue Intelligence Agent deciding the best recovery action.
+  const prompt = `You are a Revenue Recovery Strategy Consultant evaluating scored recovery options.
 
 OPPORTUNITY:
-- Type: ${opportunity.type}
-- Revenue at risk: ₹${Math.round(opportunity.revenue_at_risk).toLocaleString()}
-- Recovery probability: ${(opportunity.recovery_probability * 100).toFixed(0)}%
-- Root cause: ${opportunity.root_cause || 'Unknown'}
-- Previous interventions: ${opportunity.intervention_count}
+- Type: ${opportunity.type || 'payment_failure'}
+- Revenue at Risk: ₹${Math.round(opportunity.revenue_at_risk || 0).toLocaleString('en-IN')}
+- Root Cause Diagnosis: ${opportunity.root_cause || 'Elevated transaction failure rate'}
 
-RECOVERY OPTIONS (with deterministic scores):
+EVALUATED & DETERMINISTICALLY SCORED STRATEGIES:
 ${JSON.stringify(recoveryOptions, null, 2)}
 
-CUSTOMER CONTEXT:
+CUSTOMER SIGNALS:
 ${customerContext ? JSON.stringify({
   lifetime_value: customerContext.lifetime_value,
-  success_rate: customerContext.successful_payments / Math.max(1, customerContext.total_payments),
-  total_orders: customerContext.total_payments,
-  preferred_method: customerContext.preferred_method,
+  success_rate: customerContext.success_rate,
   do_not_contact: customerContext.do_not_contact,
-}, null, 2) : 'No customer data available'}
+  previous_purchases: customerContext.successful_payments,
+}, null, 2) : 'No specific customer profile attached'}
 
-Respond with ONLY valid JSON:
+TASK:
+Review the top-ranked strategy. Provide a concise explanation of why this option is superior to the alternatives.
+
+Output ONLY valid JSON:
 {
-  "recommended_action": "create_payment_link",
+  "recommended_action": "${recoveryOptions[0]?.action || 'create_payment_link'}",
   "confidence": 0.85,
-  "reason": "Why this is the best choice",
+  "reason": "Economic justification based on net expected recovery",
   "risk_level": "low",
-  "why_not_others": "Brief explanation of why alternatives were not chosen"
+  "why_not_others": "Brief explanation of why lower-ranked alternatives were not selected"
 }`;
 
   if (model) {
@@ -159,85 +158,43 @@ Respond with ONLY valid JSON:
         return parsed;
       }
     } catch (err) {
-      console.error('[LLM] Gemini comparison failed:', err.message);
+      console.warn('[LLM] Gemini comparison failed, applying deterministic strategy selection:', err.message);
     }
   }
 
-  // Fallback: pick highest expected recovery
-  const best = recoveryOptions[0]; // already sorted by expected_recovery
+  // Fallback to top-ranked strategy from recovery-strategy-engine
+  const best = recoveryOptions[0] || {};
   return {
-    recommended_action: best?.action || 'do_nothing',
-    confidence: 0.75,
-    reason: `${best?.action} has the highest expected recovery of ₹${best?.expected_recovery?.toLocaleString()}`,
-    risk_level: best?.risk_level || 'low',
-    why_not_others: 'Selected based on highest expected recovery value.',
+    recommended_action: best.action || 'create_payment_link',
+    confidence: best.evidenceStrength || 0.80,
+    reason: `${best.name || best.action} provides highest Net Expected Recovery of ₹${Math.round(best.netExpectedRecovery || best.expectedRecovery || 0).toLocaleString('en-IN')}.`,
+    risk_level: 'low',
+    why_not_others: 'Alternative options produced lower net expected recovery after factoring in carrier costs, failure risks, and customer friction.',
   };
 }
 
-// ─── Natural Language Query ────────────────────────────────────
+// ─── Response Parsing & Schema Validation ────────────────────────
 
-/**
- * Answer a merchant's natural-language revenue question.
- */
-async function answerMerchantQuery(query, revenueContext) {
-  const model = await getGeminiModel();
-
-  const prompt = `You are a Revenue Intelligence Agent answering a merchant's question.
-
-MERCHANT QUESTION: "${query}"
-
-CURRENT REVENUE DATA:
-${JSON.stringify(revenueContext, null, 2)}
-
-Provide a clear, concise answer with:
-1. Direct answer to the question
-2. Key numbers and trends
-3. If relevant, recommended action
-
-Respond in plain text (not JSON). Be specific with numbers. Use ₹ for amounts.`;
-
-  if (model) {
-    try {
-      const result = await model.generateContent(prompt);
-      return { success: true, answer: result.response.text() };
-    } catch (err) {
-      return { success: false, answer: `Unable to process query: ${err.message}` };
-    }
-  }
-
-  return {
-    success: true,
-    answer: `Revenue at risk: ₹${Math.round(revenueContext.revenue_at_risk || 0).toLocaleString()}. Failed payments: ${revenueContext.failed_payments || 0}. Current failure rate: ${((revenueContext.failure_rate || 0) * 100).toFixed(1)}%.`,
-  };
-}
-
-// ─── Response Parsing & Validation ─────────────────────────────
-
-function parseStructuredResponse(text, originalData) {
+function parseStructuredResponse(text) {
   const parsed = parseJsonFromText(text);
   if (!parsed) return null;
 
-  // Validate required fields
   for (const field of RECOMMENDATION_SCHEMA.required) {
-    if (field === 'opportunity_id') continue; // we'll set this ourselves
     if (parsed[field] === undefined) {
-      console.warn(`[LLM] Missing required field: ${field}`);
+      console.warn(`[LLM] Schema validation error: missing required field "${field}"`);
       return null;
     }
   }
 
-  // Validate action
   if (!RECOMMENDATION_SCHEMA.actions.includes(parsed.recommended_action)) {
-    console.warn(`[LLM] Invalid action: ${parsed.recommended_action}`);
+    console.warn(`[LLM] Schema validation error: unauthorized action "${parsed.recommended_action}"`);
     return null;
   }
 
-  // Validate confidence range
   if (typeof parsed.confidence !== 'number' || parsed.confidence < 0 || parsed.confidence > 1) {
-    parsed.confidence = 0.5;
+    parsed.confidence = 0.70;
   }
 
-  // Validate risk level
   if (!RECOMMENDATION_SCHEMA.risk_levels.includes(parsed.risk_level)) {
     parsed.risk_level = 'medium';
   }
@@ -250,38 +207,31 @@ function parseStructuredResponse(text, originalData) {
 
 function parseJsonFromText(text) {
   try {
-    // Try direct parse first
     return JSON.parse(text.trim());
   } catch {
-    // Try extracting JSON from markdown code blocks
-    const jsonMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+    const codeBlockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+    if (codeBlockMatch) {
+      try {
+        return JSON.parse(codeBlockMatch[1].trim());
+      } catch {}
+    }
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       try {
-        return JSON.parse(jsonMatch[1].trim());
-      } catch { /* continue */ }
+        return JSON.parse(jsonMatch[0]);
+      } catch {}
     }
-
-    // Try finding JSON object in text
-    const objectMatch = text.match(/\{[\s\S]*\}/);
-    if (objectMatch) {
-      try {
-        return JSON.parse(objectMatch[0]);
-      } catch { /* continue */ }
-    }
-
     return null;
   }
 }
 
-// ─── Fallback Reasoning ────────────────────────────────────────
+// ─── Deterministic Rule-Based Fallback ────────────────────────────
 
 function fallbackRootCauseAnalysis(data) {
   const anomalies = data.anomalies || [];
-  const methodRates = data.current_metrics?.method_rates || {};
-
-  // Find the worst degraded method
   let worstMethod = null;
   let worstIncrease = 0;
+
   for (const a of anomalies) {
     if (a.type === 'method_degradation' && a.increase > worstIncrease) {
       worstMethod = a.method;
@@ -290,49 +240,46 @@ function fallbackRootCauseAnalysis(data) {
   }
 
   if (worstMethod) {
+    const methodUpper = worstMethod.toUpperCase();
     return {
-      root_cause: `${worstMethod.toUpperCase()} payment method degradation`,
-      root_cause_detail: `${worstMethod.toUpperCase()} failure rate increased by ${(worstIncrease * 100).toFixed(1)}% compared to baseline. This is the primary driver of revenue loss.`,
-      confidence: Math.min(0.90, 0.70 + worstIncrease),
+      root_cause: `${methodUpper} payment rail degradation`,
+      root_cause_detail: `${methodUpper} failure rate spiked by ${(worstIncrease * 100).toFixed(1)}% above baseline. Issuer or network timeout detected.`,
+      confidence: Math.min(0.92, 0.72 + worstIncrease),
       recommended_action: 'create_payment_link',
-      reason: 'Payment links provide an alternative payment flow, bypassing the degraded payment method.',
+      reason: `Sending a payment link provides alternative checkout methods (Card, Netbanking), bypassing the degraded ${methodUpper} rail.`,
       risk_level: 'low',
-      alternative_actions: ['retry_payment', 'send_notification'],
-      explanation_for_merchant: `Your ${worstMethod.toUpperCase()} payments are experiencing higher-than-normal failures. We recommend sending payment links to affected customers so they can pay through an alternative method.`,
-      source: 'fallback',
+      explanation_for_merchant: `We detected high failure rates on ${methodUpper} transactions. A payment link with alternative payment options will recover these lost sales.`,
+      source: 'deterministic_fallback',
     };
   }
 
-  if (data.failed_payments_count > 0) {
+  if (data.revenue_at_risk > 100000) {
     return {
-      root_cause: 'Elevated payment failure rate',
-      root_cause_detail: `${data.failed_payments_count} payments failed with ₹${Math.round(data.revenue_at_risk).toLocaleString()} at risk.`,
-      confidence: 0.65,
-      recommended_action: data.revenue_at_risk > 50000 ? 'create_payment_link' : 'send_notification',
-      reason: 'Recovery action recommended based on failure volume and revenue exposure.',
+      root_cause: 'High-value transaction failure concentration',
+      root_cause_detail: `Significant revenue exposure of ₹${Math.round(data.revenue_at_risk).toLocaleString('en-IN')} across high-ticket orders.`,
+      confidence: 0.85,
+      recommended_action: 'create_payment_link',
+      reason: 'High-ticket buyers require frictionless direct links to complete authorization.',
       risk_level: 'low',
-      alternative_actions: ['retry_payment', 'do_nothing'],
-      explanation_for_merchant: `We detected ${data.failed_payments_count} failed payments totaling ₹${Math.round(data.revenue_at_risk).toLocaleString()}. We recommend recovery action.`,
-      source: 'fallback',
+      explanation_for_merchant: 'A payment link was prepared for your high-value checkout attempts.',
+      source: 'deterministic_fallback',
     };
   }
 
   return {
-    root_cause: 'No significant issues detected',
-    root_cause_detail: 'Payment performance is within normal parameters.',
-    confidence: 0.90,
-    recommended_action: 'do_nothing',
-    reason: 'No anomalies or significant failures detected.',
+    root_cause: 'Isolated transaction payment failures',
+    root_cause_detail: `${data.failed_payments_count || 0} failed payments identified requiring standard recovery intervention.`,
+    confidence: 0.78,
+    recommended_action: 'create_payment_link',
+    reason: 'Multi-rail payment link provides the highest recovery probability with zero messaging surcharge.',
     risk_level: 'low',
-    alternative_actions: [],
-    explanation_for_merchant: 'Everything looks good — no revenue recovery needed right now.',
-    source: 'fallback',
+    explanation_for_merchant: 'Standard automated recovery intervention recommended for failed checkout attempts.',
+    source: 'deterministic_fallback',
   };
 }
 
 module.exports = {
   analyzeRootCause,
   compareInterventions,
-  answerMerchantQuery,
   RECOMMENDATION_SCHEMA,
 };

@@ -85,10 +85,40 @@ function calculateRevenueAtRisk(failedPayments) {
 // ─── Expected Recovery Value ───────────────────────────────────
 
 /**
- * Expected Recovery = Revenue at Risk × Recovery Probability × Intervention Effectiveness - Cost
+ * Expected Recovery = Revenue at Risk × Recovery Probability × Intervention Effectiveness
+ * Net Expected Recovery = Expected Recovery - Intervention Cost - Expected Risk Cost
  */
-function calculateExpectedRecovery(revenue_at_risk, recovery_probability, intervention_effectiveness = 0.85, intervention_cost = 0) {
-  return Math.max(0, (revenue_at_risk * recovery_probability * intervention_effectiveness) - intervention_cost);
+function calculateExpectedRecovery(revenue_at_risk, recovery_probability, intervention_effectiveness = 0.85, intervention_cost = 0, risk_cost = 0) {
+  const gross = Math.round(revenue_at_risk * recovery_probability * intervention_effectiveness);
+  return Math.max(0, gross - intervention_cost - risk_cost);
+}
+
+/**
+ * Calculate multi-factor Recovery Confidence score (0.0 to 1.0).
+ * 
+ * Combines:
+ *   - Detector confidence (0.30)
+ *   - Historical evidence confidence (0.25)
+ *   - Strategy model confidence (0.20)
+ *   - LLM diagnostic confidence (0.15)
+ *   - Data completeness (0.10)
+ */
+function calculateRecoveryConfidence({
+  detectorConfidence = 0.85,
+  historicalEvidenceConfidence = 0.75,
+  strategyEvidenceConfidence = 0.80,
+  llmConfidence = 0.75,
+  dataCompleteness = 0.90,
+} = {}) {
+  const weightedScore = (
+    0.30 * Math.max(0, Math.min(1, detectorConfidence)) +
+    0.25 * Math.max(0, Math.min(1, historicalEvidenceConfidence)) +
+    0.20 * Math.max(0, Math.min(1, strategyEvidenceConfidence)) +
+    0.15 * Math.max(0, Math.min(1, llmConfidence)) +
+    0.10 * Math.max(0, Math.min(1, dataCompleteness))
+  );
+
+  return parseFloat(Math.min(0.98, Math.max(0.10, weightedScore)).toFixed(4));
 }
 
 // ─── Intervention Effectiveness ────────────────────────────────
@@ -97,9 +127,11 @@ const INTERVENTION_EFFECTIVENESS = {
   'create_payment_link': 0.85,
   'send_notification': 0.60,
   'retry_payment': 0.70,
+  'request_alternate_payment_method': 0.80,
   'offer_discount': 0.75,
   'escalate_to_merchant': 0.50,
-  'do_nothing': 0.10,
+  'flag_discount_review': 0.90,
+  'do_nothing': 0.05,
 };
 
 function getInterventionEffectiveness(action_type) {
@@ -227,13 +259,197 @@ function calculateRevenueMetrics(payments) {
   };
 }
 
+// ─── Cart Recovery Probability ─────────────────────────────────
+
+/**
+ * Calculate recovery probability for an abandoned cart.
+ * Uses customer history, cart value, and recency.
+ * 
+ * Returns: 0.0 to 1.0
+ */
+function calculateCartRecoveryProbability(cartEvent, customer = null) {
+  let score = 0.30; // base probability for cart recovery
+
+  if (customer) {
+    // Repeat buyer is much more likely to convert
+    if (customer.successful_payments > 5) score += 0.20;
+    else if (customer.successful_payments > 2) score += 0.10;
+    else if (customer.successful_payments > 0) score += 0.05;
+
+    // LTV indicates commitment
+    if (customer.lifetime_value > 50000) score += 0.10;
+    else if (customer.lifetime_value > 10000) score += 0.05;
+
+    // Recent activity
+    if (customer.last_payment_at) {
+      const daysSince = (Date.now() - new Date(customer.last_payment_at).getTime()) / (1000 * 60 * 60 * 24);
+      if (daysSince < 7) score += 0.10;
+      else if (daysSince < 30) score += 0.05;
+      else if (daysSince > 90) score -= 0.10;
+    }
+  }
+
+  // Cart value factor
+  if (cartEvent.cart_value > 10000) score += 0.05;
+  else if (cartEvent.cart_value < 500) score -= 0.10;
+
+  // Recency of abandonment
+  if (cartEvent.created_at) {
+    const hoursSince = (Date.now() - new Date(cartEvent.created_at).getTime()) / (1000 * 60 * 60);
+    if (hoursSince < 1) score += 0.15;
+    else if (hoursSince < 6) score += 0.10;
+    else if (hoursSince < 24) score += 0.05;
+    else if (hoursSince > 72) score -= 0.10;
+    else if (hoursSince > 168) score -= 0.20;
+  }
+
+  return Math.max(0.05, Math.min(0.90, score));
+}
+
+// ─── Discount Leakage Scoring ──────────────────────────────────
+
+/**
+ * Score whether a discount was potentially unnecessary.
+ * Returns: 0.0 to 1.0 (higher = more likely unnecessary)
+ * 
+ * Based on: repeat purchases, LTV, recency, discount proportion.
+ */
+function calculateDiscountLeakageScore(discount, customer = null) {
+  let score = 0.20;
+
+  if (customer) {
+    // Repeat buyer signal
+    const purchases = customer.successful_payments || 0;
+    if (purchases > 10) score += 0.30;
+    else if (purchases > 5) score += 0.20;
+    else if (purchases > 2) score += 0.10;
+
+    // LTV signal
+    const ltv = customer.lifetime_value || 0;
+    if (ltv > 50000) score += 0.15;
+    else if (ltv > 20000) score += 0.10;
+    else if (ltv > 5000) score += 0.05;
+
+    // Recent activity
+    if (customer.last_payment_at) {
+      const daysSince = (Date.now() - new Date(customer.last_payment_at).getTime()) / (1000 * 60 * 60 * 24);
+      if (daysSince < 7) score += 0.10;
+      else if (daysSince < 30) score += 0.05;
+    }
+  }
+
+  // Discount proportion
+  if (discount.original_amount > 0) {
+    const pct = discount.discount_amount / discount.original_amount;
+    if (pct < 0.05) score -= 0.10; // tiny discount, probably fine
+    if (pct > 0.30) score -= 0.10; // large discount, probably intentional
+  }
+
+  return Math.max(0.0, Math.min(0.95, score));
+}
+
+// ─── Unified Leak Summary ──────────────────────────────────────
+
+/**
+ * Calculate unified metrics across all leak types.
+ */
+function calculateLeakSummary(paymentMetrics, cartMetrics, discountMetrics) {
+  const summary = {
+    total_revenue_at_risk: 0,
+    total_expected_recovery: 0,
+    leak_types_detected: [],
+  };
+
+  if (paymentMetrics && paymentMetrics.revenue_at_risk > 0) {
+    summary.total_revenue_at_risk += paymentMetrics.revenue_at_risk;
+    summary.leak_types_detected.push('payment_failures');
+  }
+
+  if (cartMetrics && cartMetrics.abandoned_value > 0) {
+    summary.total_revenue_at_risk += cartMetrics.abandoned_value;
+    summary.leak_types_detected.push('cart_abandonment');
+  }
+
+  if (discountMetrics && discountMetrics.potential_leakage > 0) {
+    summary.total_revenue_at_risk += discountMetrics.potential_leakage;
+    summary.leak_types_detected.push('discount_leakage');
+  }
+
+  return summary;
+}
+
+// ─── Classification & Risk ─────────────────────────────────────
+
+/**
+ * Classify a payment failure reason into severity buckets.
+ * Returns { category: 'HIGH'|'MEDIUM'|'LOW', baseProbability: number, suggestedRetryDelay: string }
+ */
+function classifyFailure(payment) {
+  const reason = (payment.failure_reason || '').toLowerCase();
+  
+  if (['insufficient_funds', 'card_declined', 'card_expired', 'cvv_mismatch'].includes(reason)) {
+    return { category: 'HIGH', baseProbability: 0.85, suggestedRetryDelay: '2 days' };
+  }
+  
+  if (['issuer_declined', 'network_timeout', 'rate_limit_exceeded', 'duplicate_request', 'upi_timeout', 'bank_unavailable'].includes(reason)) {
+    return { category: 'MEDIUM', baseProbability: 0.55, suggestedRetryDelay: '4 hours' };
+  }
+  
+  return { category: 'LOW', baseProbability: 0.25, suggestedRetryDelay: '7 days' };
+}
+
+/**
+ * Calculate customer churn risk score (0.0 to 1.0).
+ */
+function calculateChurnRisk(customer) {
+  let risk = 0.5; // Base risk
+
+  // Recent failure volume is the strongest signal
+  const recentFailures = customer.recent_failure_count || 0;
+  if (recentFailures > 3) risk += 0.3;
+  else if (recentFailures > 1) risk += 0.15;
+
+  // LTV (Inverse correlation — higher LTV means they are stickier, lower risk of abandoning completely)
+  const ltv = customer.lifetime_value || customer.ltv || 0;
+  if (ltv > 50000) risk -= 0.2;
+  else if (ltv > 10000) risk -= 0.1;
+
+  // Total failure rate
+  const total = customer.total_payments || 1;
+  const failed = customer.failed_payments || 0;
+  const failureRate = failed / total;
+  
+  if (failureRate > 0.5) risk += 0.2;
+  else if (failureRate < 0.1) risk -= 0.1;
+
+  return Math.max(0, Math.min(1, risk));
+}
+
+/**
+ * Calculate expected ROI for a recovery opportunity.
+ */
+function calculateROI(recoveryAmount, expectedProbability, retryCost = 5, emailCost = 2) {
+  const expectedRevenue = recoveryAmount * expectedProbability;
+  const totalCost = retryCost + emailCost;
+  
+  if (totalCost === 0) return 0;
+  
+  return ((expectedRevenue - totalCost) / totalCost) * 100;
+}
+
 module.exports = {
+  calculateRevenueMetrics,
   calculateRecoveryProbability,
-  calculateRevenueAtRisk,
   calculateExpectedRecovery,
+  calculateRecoveryConfidence,
   calculatePriority,
   getInterventionEffectiveness,
   detectAnomalies,
-  calculateRevenueMetrics,
+  calculateCartRecoveryProbability,
+  calculateDiscountLeakageScore,
+  calculateLeakSummary,
+  classifyFailure,
+  calculateChurnRisk,
+  calculateROI,
   INTERVENTION_EFFECTIVENESS,
 };
