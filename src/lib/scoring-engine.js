@@ -78,8 +78,12 @@ function calculateRecoveryProbability(payment, customer = null) {
 /**
  * Calculate total revenue at risk for a set of failed payments.
  */
-function calculateRevenueAtRisk(failedPayments) {
-  return failedPayments.reduce((total, p) => total + (p.amount || 0), 0);
+function calculateRevenueAtRisk(failedPayments = []) {
+  if (!Array.isArray(failedPayments)) return 0;
+  return failedPayments.reduce((total, p) => {
+    const amt = parseFloat(p?.amount);
+    return total + (isNaN(amt) || amt < 0 ? 0 : amt);
+  }, 0);
 }
 
 // ─── Expected Recovery Value ───────────────────────────────────
@@ -87,10 +91,26 @@ function calculateRevenueAtRisk(failedPayments) {
 /**
  * Expected Recovery = Revenue at Risk × Recovery Probability × Intervention Effectiveness
  * Net Expected Recovery = Expected Recovery - Intervention Cost - Expected Risk Cost
+ * 
+ * Invariants:
+ * - Expected Recovery can NEVER exceed Revenue at Risk.
+ * - Negative inputs or NaN fail closed to 0.
  */
 function calculateExpectedRecovery(revenue_at_risk, recovery_probability, intervention_effectiveness = 0.85, intervention_cost = 0, risk_cost = 0) {
-  const gross = Math.round(revenue_at_risk * recovery_probability * intervention_effectiveness);
-  return Math.max(0, gross - intervention_cost - risk_cost);
+  const cleanRisk = Math.max(0, isNaN(revenue_at_risk) ? 0 : Number(revenue_at_risk));
+  if (cleanRisk <= 0) return 0;
+
+  const cleanProb = Math.max(0, Math.min(1, isNaN(recovery_probability) ? 0.5 : Number(recovery_probability)));
+  const cleanEff = Math.max(0, Math.min(1, isNaN(intervention_effectiveness) ? 0.85 : Number(intervention_effectiveness)));
+  const cleanCost = Math.max(0, isNaN(intervention_cost) ? 0 : Number(intervention_cost));
+  const cleanRiskCost = Math.max(0, isNaN(risk_cost) ? 0 : Number(risk_cost));
+
+  // Gross recovery bounded by revenue_at_risk
+  const gross = Math.min(cleanRisk, Math.round(cleanRisk * cleanProb * cleanEff));
+  
+  // Net expected recovery bounded by cleanRisk and non-negative
+  const net = Math.max(0, gross - cleanCost - cleanRiskCost);
+  return Math.min(cleanRisk, net);
 }
 
 /**
@@ -145,7 +165,10 @@ function getInterventionEffectiveness(action_type) {
  * Returns: { priority: 'critical'|'high'|'medium'|'low', score: number }
  */
 function calculatePriority(revenue_at_risk, recovery_probability, urgency = 1.0) {
-  const expected = revenue_at_risk * recovery_probability * urgency;
+  const cleanRisk = Math.max(0, isNaN(revenue_at_risk) ? 0 : Number(revenue_at_risk));
+  const cleanProb = Math.max(0, Math.min(1, isNaN(recovery_probability) ? 0.5 : Number(recovery_probability)));
+  const cleanUrg = Math.max(0.1, isNaN(urgency) ? 1.0 : Number(urgency));
+  const expected = Math.round(cleanRisk * cleanProb * cleanUrg);
 
   if (expected >= 500000) return { priority: 'critical', score: expected };  // ₹5L+
   if (expected >= 100000) return { priority: 'high', score: expected };      // ₹1L+

@@ -25,6 +25,23 @@ export async function GET() {
 
 export async function POST(request) {
   try {
+    const { checkRateLimit } = require('@/lib/rate-limiter');
+    const rl = checkRateLimit('benchmark_run', { limit: 10, windowMs: 60000 });
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { success: false, error: `Too many benchmark execution requests. Please retry in ${rl.retryAfterSec} seconds.` },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(rl.retryAfterSec),
+            'X-RateLimit-Limit': String(rl.limit),
+            'X-RateLimit-Remaining': String(rl.remaining),
+            'X-RateLimit-Reset': String(Math.ceil(rl.resetTimeMs / 1000)),
+          },
+        }
+      );
+    }
+
     const body = await request.json().catch(() => ({}));
     const seed = body.seed || Math.floor(Math.random() * 10000);
 

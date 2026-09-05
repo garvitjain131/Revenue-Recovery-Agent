@@ -1,6 +1,7 @@
 'use client';
 
 import { Component } from 'react';
+import { AlertTriangle } from 'lucide-react';
 
 export class ErrorBoundary extends Component {
   constructor(props) {
@@ -20,7 +21,7 @@ export class ErrorBoundary extends Component {
     if (this.state.hasError) {
       return (
         <div className="card" style={{ padding: '48px', textAlign: 'center', maxWidth: 500, margin: '48px auto' }}>
-          <div style={{ fontSize: '48px', marginBottom: '16px' }}>⚠️</div>
+          <AlertTriangle size={48} style={{ color: 'var(--color-warning)', margin: '0 auto 16px' }} />
           <h2 style={{ marginBottom: '8px' }}>Something went wrong</h2>
           <p className="text-muted" style={{ marginBottom: '24px' }}>
             An unexpected error occurred. Please refresh the page.

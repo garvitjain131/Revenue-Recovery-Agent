@@ -170,19 +170,40 @@ function scoreSingleStrategy(strategyDef, revenueAtRisk, baseProbability, custom
     }
   }
 
-  // Calculate Expected Recovery
-  const expectedRecovery = Math.round(revenueAtRisk * adjustedProbability * adjustedEffectiveness);
+  // Math safeguard: Clean and validate revenue at risk
+  const cleanRevenueAtRisk = Math.max(0, isNaN(revenueAtRisk) ? 0 : Number(revenueAtRisk));
+  if (cleanRevenueAtRisk <= 0) {
+    return {
+      action: strategyDef.action,
+      name: strategyDef.name,
+      description: strategyDef.description,
+      recoveryProbability: 0,
+      effectiveness: 0,
+      expectedRecovery: 0,
+      interventionCost: strategyDef.intervention_cost,
+      expectedRiskCost: 0,
+      netExpectedRecovery: 0,
+      customerFrictionScore: 0,
+      evidenceStrength: 0,
+    };
+  }
+
+  // Calculate Expected Recovery (bounded strictly by revenueAtRisk)
+  const rawExpected = Math.round(cleanRevenueAtRisk * adjustedProbability * adjustedEffectiveness);
+  const expectedRecovery = Math.min(cleanRevenueAtRisk, Math.max(0, rawExpected));
 
   // Intervention Cost (direct INR cost)
-  const interventionCost = strategyDef.intervention_cost;
+  const interventionCost = Math.max(0, strategyDef.intervention_cost || 0);
 
   // Expected Risk Cost: monetary valuation of customer annoyance / brand friction
-  // Higher friction on high-value customers carries a higher implicit risk cost
   const riskMultiplier = customer && customer.lifetime_value > 25000 ? 0.02 : 0.005;
-  const expectedRiskCost = Math.round(revenueAtRisk * frictionScore * riskMultiplier);
+  const expectedRiskCost = Math.max(0, Math.round(cleanRevenueAtRisk * frictionScore * riskMultiplier));
 
-  // Net Expected Recovery
-  const netExpectedRecovery = Math.max(0, expectedRecovery - interventionCost - expectedRiskCost);
+  // Net Expected Recovery: strictly non-negative and capped by revenueAtRisk
+  const netExpectedRecovery = Math.min(
+    cleanRevenueAtRisk,
+    Math.max(0, expectedRecovery - interventionCost - expectedRiskCost)
+  );
 
   return {
     action: strategyDef.action,
@@ -200,33 +221,35 @@ function scoreSingleStrategy(strategyDef, revenueAtRisk, baseProbability, custom
 }
 
 /**
- * Persist evaluated strategies to database for an opportunity.
+ * Persist evaluated strategies to database for an opportunity atomically.
  */
 function persistStrategies(opportunityId, evaluatedStrategies) {
   if (!opportunityId || !Array.isArray(evaluatedStrategies)) return;
 
   try {
-    // Delete existing strategies for this opportunity to maintain single active evaluation
-    db.runExec('DELETE FROM recovery_strategies WHERE opportunity_id = ?', [opportunityId]);
+    db.withTransaction(() => {
+      // Delete existing strategies for this opportunity to maintain single active evaluation
+      db.runExec('DELETE FROM recovery_strategies WHERE opportunity_id = ?', [opportunityId]);
 
-    for (const strat of evaluatedStrategies) {
-      const id = db.generateId('strat');
-      db.insertRow('recovery_strategies', {
-        id,
-        opportunity_id: opportunityId,
-        action: strat.action,
-        recovery_probability: strat.recoveryProbability,
-        expected_recovery: strat.expectedRecovery,
-        intervention_cost: strat.interventionCost,
-        expected_risk_cost: strat.expectedRiskCost,
-        net_expected_recovery: strat.netExpectedRecovery,
-        customer_friction_score: strat.customerFrictionScore,
-        evidence_strength: strat.evidenceStrength,
-        strategy_rank: strat.strategyRank,
-        selected: strat.selected ? 1 : 0,
-        created_at: new Date().toISOString(),
-      });
-    }
+      for (const strat of evaluatedStrategies) {
+        const id = db.generateId('strat');
+        db.insertRow('recovery_strategies', {
+          id,
+          opportunity_id: opportunityId,
+          action: strat.action,
+          recovery_probability: strat.recoveryProbability,
+          expected_recovery: strat.expectedRecovery,
+          intervention_cost: strat.interventionCost,
+          expected_risk_cost: strat.expectedRiskCost,
+          net_expected_recovery: strat.netExpectedRecovery,
+          customer_friction_score: strat.customerFrictionScore,
+          evidence_strength: strat.evidenceStrength,
+          strategy_rank: strat.strategyRank,
+          selected: strat.selected ? 1 : 0,
+          created_at: new Date().toISOString(),
+        });
+      }
+    });
   } catch (err) {
     console.error('[RecoveryStrategyEngine] Failed to persist strategies:', err.message);
   }

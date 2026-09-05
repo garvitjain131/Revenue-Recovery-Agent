@@ -1,87 +1,126 @@
 'use client';
 
-import { TrendingUp, ArrowDown } from 'lucide-react';
+import { TrendingUp, ArrowRight } from 'lucide-react';
+import * as Tooltip from '@radix-ui/react-tooltip';
 
 function formatCurrency(n) {
   if (n == null || isNaN(n)) return '₹0';
   if (n >= 10000000) return `₹${(n / 10000000).toFixed(2)} Cr`;
   if (n >= 100000) return `₹${(n / 100000).toFixed(2)}L`;
+  if (n >= 1000) return `₹${(n / 1000).toFixed(1)}K`;
+  return '₹' + Math.round(n).toLocaleString('en-IN');
+}
+
+function formatExactCurrency(n) {
+  if (n == null || isNaN(n)) return '₹0';
   return '₹' + Math.round(n).toLocaleString('en-IN');
 }
 
 export function RecoveryFunnel({ funnelData = [] }) {
   if (!funnelData || funnelData.length === 0) return null;
 
+  const stageConfig = {
+    'Processed':   { color: '#6A8FB8',              dotClass: 'status-dot-brand' },
+    'At Risk':     { color: 'var(--color-error)',   dotClass: 'status-dot-error' },
+    'Recoverable': { color: 'var(--color-warning)', dotClass: 'status-dot-warning' },
+    'Addressed':   { color: '#2563EB',              dotClass: 'status-dot-brand' },
+    'Recovered':   { color: 'var(--color-success)', dotClass: 'status-dot-success' },
+  };
+
+  const stageDescriptions = {
+    'Processed': 'Total payment volume processed through the merchant gateway.',
+    'At Risk': 'Revenue from failed payments, abandoned carts, and discount leakage.',
+    'Recoverable': 'Opportunities with recovery probability above the confidence threshold.',
+    'Addressed': 'Interventions that have been executed (payment links, retries, notifications).',
+    'Recovered': 'Confirmed recovered revenue from executed interventions (attributed 1:1).',
+  };
+
   return (
-    <div className="card section" style={{ marginBottom: 24 }}>
-      <div className="section-header">
-        <h2 className="section-title">
-          <span className="section-title-icon"><TrendingUp size={18} /></span>
-          Revenue Recovery Funnel
-        </h2>
-        <span className="badge badge-dim">Continuous Closed-Loop Attribution</span>
-      </div>
+    <Tooltip.Provider delayDuration={200}>
+      <div className="panel">
+        <div className="panel-header">
+          <div className="panel-title">
+            <TrendingUp size={14} />
+            Recovery Funnel
+          </div>
+        </div>
 
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: `repeat(${funnelData.length}, 1fr)`,
-        gap: 12,
-        position: 'relative',
-        padding: '12px 0',
-      }}>
-        {funnelData.map((stage, idx) => {
-          const isFinal = idx === funnelData.length - 1;
-          const isAtRisk = stage.stage === 'At Risk';
-          return (
-            <div
-              key={stage.stage}
-              style={{
-                background: isFinal
-                  ? 'rgba(16, 185, 129, 0.08)'
-                  : isAtRisk
-                  ? 'rgba(239, 68, 68, 0.08)'
-                  : 'var(--bg-tertiary)',
-                border: isFinal
-                  ? '1px solid rgba(16, 185, 129, 0.3)'
-                  : isAtRisk
-                  ? '1px solid rgba(239, 68, 68, 0.3)'
-                  : '1px solid var(--border-subtle)',
-                borderRadius: 'var(--radius-md)',
-                padding: '16px 14px',
-                position: 'relative',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-              }}
-            >
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-tertiary)' }}>
-                    Step {idx + 1}
-                  </span>
-                  <span className="badge badge-dim" style={{ fontSize: 10 }}>
-                    {stage.count} {stage.count === 1 ? 'record' : 'records'}
-                  </span>
-                </div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>
-                  {stage.label}
-                </div>
-              </div>
+        <div className="panel-body" style={{ padding: '16px 20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+            {funnelData.map((stage, idx) => {
+              const config = stageConfig[stage.stage] || { color: 'var(--text-secondary)', dotClass: '' };
 
-              <div style={{ marginTop: 12 }}>
-                <div style={{
-                  fontSize: 20,
-                  fontWeight: 800,
-                  color: isFinal ? 'var(--color-success)' : isAtRisk ? 'var(--color-error)' : 'var(--text-primary)',
-                  letterSpacing: '-0.02em',
-                }}>
-                  {formatCurrency(stage.value)}
+              return (
+                <div key={stage.stage} style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                  {/* ═══ Feature #7: Radix Tooltip on each funnel stage ═══ */}
+                  <Tooltip.Root>
+                    <Tooltip.Trigger asChild>
+                      <div style={{ flex: 1, minWidth: 0, cursor: 'default' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                          <span className={`status-dot ${config.dotClass}`} />
+                          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                            {stage.label}
+                          </span>
+                        </div>
+                        <div className="mono-num" style={{ fontSize: 22, fontWeight: 700, color: config.color, letterSpacing: '-0.02em' }}>
+                          {formatCurrency(stage.value)}
+                        </div>
+                        <div style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 2 }}>
+                          {stage.count} {stage.count === 1 ? 'record' : 'records'}
+                        </div>
+                      </div>
+                    </Tooltip.Trigger>
+                    <Tooltip.Portal>
+                      <Tooltip.Content
+                        side="bottom"
+                        sideOffset={6}
+                        style={{
+                          background: 'var(--bg-secondary)',
+                          border: '1px solid var(--border-medium)',
+                          borderRadius: 'var(--radius-md)',
+                          padding: '8px 12px',
+                          boxShadow: 'var(--shadow-md)',
+                          maxWidth: 260,
+                          zIndex: 200,
+                        }}
+                      >
+                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+                          {stage.label}
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                          {stageDescriptions[stage.stage] || ''}
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                          <div>
+                            <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-tertiary)' }}>Amount</div>
+                            <div className="mono-num" style={{ fontSize: 12, fontWeight: 700, color: config.color }}>
+                              {formatExactCurrency(stage.value)}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-tertiary)' }}>Count</div>
+                            <div className="mono-num" style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
+                              {stage.count.toLocaleString('en-IN')}
+                            </div>
+                          </div>
+                        </div>
+                        <Tooltip.Arrow style={{ fill: 'var(--bg-secondary)' }} />
+                      </Tooltip.Content>
+                    </Tooltip.Portal>
+                  </Tooltip.Root>
+
+                  {/* Arrow connector */}
+                  {idx < funnelData.length - 1 && (
+                    <div style={{ padding: '0 10px', color: 'var(--text-dim)', flexShrink: 0 }}>
+                      <ArrowRight size={14} />
+                    </div>
+                  )}
                 </div>
-              </div>
-            </div>
-          );
-        })}
+              );
+            })}
+          </div>
+        </div>
       </div>
-    </div>
+    </Tooltip.Provider>
   );
 }

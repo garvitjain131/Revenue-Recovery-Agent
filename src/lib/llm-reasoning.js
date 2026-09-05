@@ -32,6 +32,35 @@ const RECOMMENDATION_SCHEMA = {
   risk_levels: ['low', 'medium', 'high'],
 };
 
+const GEMINI_TIMEOUT_MS = 8000; // 8 seconds maximum timeout for Gemini API calls
+
+function sanitizeError(msg) {
+  if (!msg) return '';
+  return String(msg)
+    .replace(/AIza[0-9A-Za-z-_]{35}/g, '[REDACTED_API_KEY]')
+    .replace(/(?:key|token|secret)=([^&\s]+)/gi, 'key=[REDACTED]');
+}
+
+function withTimeout(promise, timeoutMs = GEMINI_TIMEOUT_MS, operationName = 'Gemini API call') {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const err = new Error(`${operationName} timed out after ${timeoutMs}ms`);
+      err.code = 'ETIMEDOUT';
+      reject(err);
+    }, timeoutMs);
+
+    promise
+      .then((res) => {
+        clearTimeout(timer);
+        resolve(res);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
+
 // ─── Gemini Client ───────────────────────────────────────────────
 
 let geminiModel = null;
@@ -47,10 +76,11 @@ async function getGeminiModel() {
   try {
     const { GoogleGenerativeAI } = require('@google/generative-ai');
     const genAI = new GoogleGenerativeAI(apiKey);
-    geminiModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const modelName = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+    geminiModel = genAI.getGenerativeModel({ model: modelName });
     return geminiModel;
   } catch (err) {
-    console.warn('[LLM] Gemini client unavailable, utilizing rule-based fallback diagnostics:', err.message);
+    console.warn('[LLM] Gemini client unavailable, utilizing rule-based fallback diagnostics:', sanitizeError(err.message));
     return null;
   }
 }
@@ -66,12 +96,12 @@ async function analyzeRootCause(opportunityData) {
 
   if (model) {
     try {
-      const result = await model.generateContent(prompt);
+      const result = await withTimeout(model.generateContent(prompt), GEMINI_TIMEOUT_MS, 'Root cause analysis');
       const text = result.response.text();
       const parsed = parseStructuredResponse(text, opportunityData);
       if (parsed) return parsed;
     } catch (err) {
-      console.warn('[LLM] Gemini diagnostic call failed, falling back to deterministic analyzer:', err.message);
+      console.warn('[LLM] Gemini diagnostic call failed or timed out, falling back to deterministic analyzer:', sanitizeError(err.message));
     }
   }
 
@@ -151,14 +181,14 @@ Output ONLY valid JSON:
 
   if (model) {
     try {
-      const result = await model.generateContent(prompt);
+      const result = await withTimeout(model.generateContent(prompt), GEMINI_TIMEOUT_MS, 'Strategy comparison');
       const text = result.response.text();
       const parsed = parseJsonFromText(text);
       if (parsed && RECOMMENDATION_SCHEMA.actions.includes(parsed.recommended_action)) {
         return parsed;
       }
     } catch (err) {
-      console.warn('[LLM] Gemini comparison failed, applying deterministic strategy selection:', err.message);
+      console.warn('[LLM] Gemini comparison failed or timed out, applying deterministic strategy selection:', sanitizeError(err.message));
     }
   }
 
@@ -281,5 +311,8 @@ function fallbackRootCauseAnalysis(data) {
 module.exports = {
   analyzeRootCause,
   compareInterventions,
+  fallbackRootCauseAnalysis,
   RECOMMENDATION_SCHEMA,
+  withTimeout,
+  sanitizeError,
 };

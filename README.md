@@ -132,11 +132,11 @@ Fill in Razorpay Test Keys (`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`) and Google
 npm run seed
 ```
 
-### 4. Run Automated Verification Suite
+### 4. Verify Credential Security (Optional)
 ```bash
-node scripts/run-tests.js
+npm run check-secrets
 ```
-Runs 23 automated unit and integration tests verifying scoring math, strategy ranking, 14 policy checks, idempotency, fallback diagnostics, and attribution integrity.
+Verifies that all API keys and secrets are safely stored in `.env.local` and not exposed in source code.
 
 ### 5. Start Development Server
 ```bash

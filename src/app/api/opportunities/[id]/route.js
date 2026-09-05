@@ -69,12 +69,59 @@ export async function GET(request, { params }) {
       { budgetSpentToday: 0 }
     );
 
+    // 4. Feature #4: Compute fallback diagnosis for AI vs Fallback diff view
+    const llmReasoning = require('@/lib/llm-reasoning');
+
+    // Build sanitized data from opportunity for the fallback function
+    const sanitizedForFallback = {
+      failed_payments_count: opportunity.affected_payments
+        ? JSON.parse(opportunity.affected_payments).length
+        : 0,
+      revenue_at_risk: opportunity.revenue_at_risk || 0,
+      anomalies: [],
+      current_metrics: {},
+      baseline_metrics: {},
+      failure_reason_breakdown: {},
+    };
+
+    const fallbackDiag = llmReasoning.fallbackRootCauseAnalysis
+      ? llmReasoning.fallbackRootCauseAnalysis(sanitizedForFallback)
+      : null;
+
+    // The AI diagnosis is stored on the opportunity's root cause
+    const aiDiagnosis = {
+      root_cause: opportunity.root_cause,
+      confidence: opportunity.root_cause_confidence || opportunity.recovery_probability || 0,
+      recommended_action: selectedStrategy?.action || 'create_payment_link',
+      reason: opportunity.root_cause_reason || opportunity.description || '',
+      risk_level: (selectedStrategy?.customer_friction_score || selectedStrategy?.customerFrictionScore || 0) > 0.3 ? 'medium' : 'low',
+    };
+
+    // Compare: show diff only when they meaningfully disagree
+    const showDiff = fallbackDiag && (
+      aiDiagnosis.root_cause !== fallbackDiag.root_cause ||
+      aiDiagnosis.recommended_action !== fallbackDiag.recommended_action
+    );
+
+    // Hydrate affected transaction records
+    const paymentIds = opportunity.affected_payments ? JSON.parse(opportunity.affected_payments) : [];
+    let affected_transactions = [];
+    if (Array.isArray(paymentIds) && paymentIds.length > 0) {
+      const placeholders = paymentIds.map(() => '?').join(', ');
+      affected_transactions = db.runQuery(
+        `SELECT id, amount, currency, status, method, failure_reason, error_code, created_at 
+         FROM payments WHERE id IN (${placeholders}) ORDER BY created_at DESC LIMIT 50`,
+        paymentIds
+      );
+    }
+
     return NextResponse.json({
       opportunity: {
         ...opportunity,
-        affected_payments: opportunity.affected_payments ? JSON.parse(opportunity.affected_payments) : [],
+        affected_payments: paymentIds,
         affected_customers: opportunity.affected_customers ? JSON.parse(opportunity.affected_customers) : [],
       },
+      affected_transactions,
       customer: customerContext,
       strategies: strategies.map(s => ({
         id: s.id,
@@ -94,6 +141,12 @@ export async function GET(request, { params }) {
       selected_strategy: selectedStrategy,
       policy_decision: policyValidation,
       interventions,
+      // Feature #4: Diagnosis comparison data
+      diagnosis: fallbackDiag ? {
+        ai: aiDiagnosis,
+        fallback: fallbackDiag,
+        showDiff: showDiff,
+      } : null,
     });
 
   } catch (error) {

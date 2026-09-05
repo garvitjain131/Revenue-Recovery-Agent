@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Award, ShieldCheck, RefreshCw, AlertCircle, CheckCircle2, TrendingUp } from 'lucide-react';
+import { Award, ShieldCheck, RefreshCw, TrendingUp } from 'lucide-react';
 import { showToast } from './Toast';
 
 function formatCurrency(n) {
@@ -12,8 +12,13 @@ function formatCurrency(n) {
   return '₹' + Math.round(n).toLocaleString('en-IN');
 }
 
+function formatPercent(n) {
+  if (n == null || isNaN(n)) return '0.0%';
+  return (n * 100).toFixed(1) + '%';
+}
+
 const SYSTEM_COLORS = {
-  baseline_do_nothing: '#94A3B8',
+  baseline_do_nothing: '#64748B',
   baseline_naive_retry: '#F59E0B',
   baseline_rule_based: '#06B6D4',
   full_agent: '#10B981',
@@ -44,7 +49,6 @@ export function BenchmarkView() {
 
   const handleRunSimulation = async () => {
     setRunning(true);
-    showToast('Executing 5,000 transaction benchmark simulation...', 'info');
     try {
       const res = await fetch('/api/benchmark', {
         method: 'POST',
@@ -54,7 +58,7 @@ export function BenchmarkView() {
       const json = await res.json();
       if (res.ok) {
         setData(json);
-        showToast('Benchmark simulation completed across all 4 systems', 'success');
+        showToast('Recovery simulation completed', 'success');
       } else {
         showToast(`Simulation error: ${json.error || 'Unknown error'}`, 'error');
       }
@@ -66,144 +70,172 @@ export function BenchmarkView() {
   };
 
   const results = data?.results || [];
+  const fullAgentResult = results.find((r) => r.system_type === 'full_agent');
+  const ruleBasedResult = results.find((r) => r.system_type === 'baseline_rule_based');
+  const naiveRetryResult = results.find((r) => r.system_type === 'baseline_naive_retry');
 
-  const chartData = results.map(r => ({
-    name: r.system_name.split(':')[0],
+  const chartData = results.map((r) => ({
+    name: r.system_name?.split(':')[0]?.trim() || r.system_type,
     fullName: r.system_name,
     recovered: r.revenue_recovered,
     netRecovery: r.net_recovery,
+    recoveryRate: Math.round((r.recovery_rate || 0) * 1000) / 10,
     type: r.system_type,
   }));
 
+  const multiplier = fullAgentResult && ruleBasedResult && ruleBasedResult.recovery_rate > 0
+    ? (fullAgentResult.recovery_rate / ruleBasedResult.recovery_rate).toFixed(1)
+    : null;
+
+  const insightText = multiplier
+    ? `Recovery Agent recovered ${multiplier}× more revenue than the rule-based baseline.`
+    : 'Evaluating recovery performance against baselines.';
+
   return (
-    <div className="section" style={{ marginTop: 24 }}>
-      <div className="section-header" style={{ marginBottom: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Header & Simulation Action */}
+      <div className="flex-between">
         <div>
-          <h2 className="section-title">
-            <span className="section-title-icon"><Award size={18} /></span>
-            Empirical Evaluation & Baseline Comparisons
-          </h2>
-          <p style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 4 }}>
-            Evaluating closed-loop performance against simpler baseline recovery architectures over a verified 5,000-transaction dataset.
-          </p>
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Award size={16} />
+            Recovery Performance Benchmarks
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
+            Comparative analysis across 5,000 transactions
+          </div>
         </div>
         <button
-          className="btn btn-primary"
+          className="btn btn-primary btn-sm"
           onClick={handleRunSimulation}
           disabled={running || loading}
+          id="rerun-benchmark-btn"
         >
-          <RefreshCw size={14} className={running ? 'spin' : ''} />
-          {running ? 'Simulating 5,000 Transations...' : 'Re-Run Benchmark Simulation'}
+          <RefreshCw size={11} className={running ? 'spin' : ''} />
+          {running ? 'Evaluating...' : 'Re-Run Benchmark'}
         </button>
       </div>
 
+      {/* Dynamic Data-Backed Insight Banner */}
+      <div style={{ padding: '8px 12px', background: 'var(--bg-surface)', borderLeft: '3px solid var(--color-success)', borderRadius: 'var(--radius-sm)', fontSize: 11, color: 'var(--text-secondary)' }}>
+        <strong style={{ color: 'var(--color-success)', marginRight: 4 }}>
+          Insight:
+        </strong>
+        {insightText}
+      </div>
+
       {loading ? (
-        <div className="card loading-container" style={{ padding: 48 }}>
-          <div className="loading-spinner" />
-          <span style={{ marginTop: 12 }}>Evaluating 4 recovery systems across benchmark dataset...</span>
+        <div style={{ padding: 36, textAlign: 'center', color: 'var(--text-tertiary)' }}>
+          <div className="spin" style={{ width: 20, height: 20, border: '2px solid var(--color-brand)', borderTopColor: 'transparent', borderRadius: '50%', margin: '0 auto 8px' }} />
+          <div>Evaluating baseline systems...</div>
         </div>
       ) : (
         <>
-          {/* Side-by-Side System Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 24 }}>
-            {results.map((res) => {
-              const isFullAgent = res.system_type === 'full_agent';
-              return (
-                <div
-                  key={res.system_type}
-                  className="card"
-                  style={{
-                    background: isFullAgent ? 'rgba(16, 185, 129, 0.06)' : 'var(--bg-surface)',
-                    border: isFullAgent ? '2px solid var(--color-success)' : '1px solid var(--border-subtle)',
-                    padding: '18px 16px',
-                    position: 'relative',
-                  }}
-                >
-                  {isFullAgent && (
-                    <div style={{
-                      position: 'absolute',
-                      top: -10,
-                      right: 12,
-                      background: 'var(--color-success)',
-                      color: '#000',
-                      fontSize: 10,
-                      fontWeight: 800,
-                      padding: '2px 8px',
-                      borderRadius: 10,
-                      letterSpacing: '0.05em',
-                    }}>
-                      OUR SYSTEM
-                    </div>
-                  )}
+          {/* Table-First Systems Comparison */}
+          <div className="panel">
+            <div className="panel-header">
+              <div className="panel-title">
+                <ShieldCheck size={14} />
+                <span>System Comparison</span>
+              </div>
+            </div>
 
-                  <div style={{ fontSize: 13, fontWeight: 700, color: isFullAgent ? 'var(--color-success)' : 'var(--text-primary)', marginBottom: 12 }}>
-                    {res.system_name}
-                  </div>
-
-                  <div style={{ marginBottom: 16 }}>
-                    <div className="metric-label" style={{ fontSize: 11 }}>Revenue Recovered</div>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', marginTop: 2 }}>
-                      {formatCurrency(res.revenue_recovered)}
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
-                      Recovery Rate: <strong>{(res.recovery_rate * 100).toFixed(1)}%</strong>
-                    </div>
-                  </div>
-
-                  <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 11 }}>
-                    <div className="flex-between">
-                      <span style={{ color: 'var(--text-tertiary)' }}>Net Recovery:</span>
-                      <span style={{ fontWeight: 700, color: isFullAgent ? 'var(--color-success)' : 'var(--text-secondary)' }}>
-                        {formatCurrency(res.net_recovery)}
-                      </span>
-                    </div>
-                    <div className="flex-between">
-                      <span style={{ color: 'var(--text-tertiary)' }}>Interventions:</span>
-                      <span>{res.interventions_count}</span>
-                    </div>
-                    <div className="flex-between">
-                      <span style={{ color: 'var(--text-tertiary)' }}>Unnecessary Outreach:</span>
-                      <span style={{ color: res.unnecessary_interventions > 0 ? 'var(--color-error)' : 'var(--color-success)', fontWeight: 600 }}>
-                        {res.unnecessary_interventions}
-                      </span>
-                    </div>
-                    <div className="flex-between">
-                      <span style={{ color: 'var(--text-tertiary)' }}>Policy Violations:</span>
-                      <span style={{ color: res.policy_violations > 0 ? 'var(--color-error)' : 'var(--color-success)', fontWeight: 600 }}>
-                        {res.policy_violations}
-                      </span>
-                    </div>
-                    <div className="flex-between">
-                      <span style={{ color: 'var(--text-tertiary)' }}>Unauthorized Executions:</span>
-                      <span style={{ color: res.unauthorized_executions > 0 ? 'var(--color-error)' : 'var(--color-success)', fontWeight: 700 }}>
-                        {res.unauthorized_executions}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            <div className="fintech-table-container">
+              <table className="fintech-table">
+                <thead>
+                  <tr>
+                    <th>System</th>
+                    <th style={{ textAlign: 'right' }}>Revenue Recovered</th>
+                    <th style={{ textAlign: 'right' }}>Net Recovery</th>
+                    <th style={{ textAlign: 'center' }}>Recovery Rate</th>
+                    <th style={{ textAlign: 'right' }}>Interventions</th>
+                    <th style={{ textAlign: 'right' }}>Unnecessary</th>
+                    <th style={{ textAlign: 'right' }}>Violations</th>
+                    <th style={{ textAlign: 'right' }}>Unauthorized</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.map((res) => {
+                    const isFullAgent = res.system_type === 'full_agent';
+                    return (
+                      <tr
+                        key={res.system_type}
+                        style={{
+                          background: isFullAgent ? 'rgba(16, 185, 129, 0.04)' : 'transparent',
+                          fontWeight: isFullAgent ? 600 : 400,
+                        }}
+                      >
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ color: isFullAgent ? 'var(--color-success)' : 'var(--text-primary)' }}>
+                              {res.system_name}
+                            </span>
+                            {isFullAgent && (
+                              <span className="badge badge-success" style={{ fontSize: 8 }}>OUR SYSTEM</span>
+                            )}
+                          </div>
+                        </td>
+                        <td style={{ textAlign: 'right' }} className="mono-num">
+                          <span style={{ color: isFullAgent ? 'var(--color-success)' : 'var(--text-primary)' }}>
+                            {formatCurrency(res.revenue_recovered)}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'right' }} className="mono-num">
+                          {formatCurrency(res.net_recovery)}
+                        </td>
+                        <td style={{ textAlign: 'center' }} className="mono-num">
+                          <span style={{ fontWeight: 700, color: isFullAgent ? 'var(--color-success)' : 'var(--text-secondary)' }}>
+                            {formatPercent(res.recovery_rate)}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'right' }} className="mono-num">
+                          {res.interventions_count}
+                        </td>
+                        <td style={{ textAlign: 'right' }} className="mono-num">
+                          <span style={{ color: res.unnecessary_interventions > 0 ? 'var(--color-error)' : 'var(--color-success)' }}>
+                            {res.unnecessary_interventions}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'right' }} className="mono-num">
+                          <span style={{ color: res.policy_violations > 0 ? 'var(--color-error)' : 'var(--color-success)', fontWeight: 700 }}>
+                            {res.policy_violations}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'right' }} className="mono-num">
+                          <span style={{ color: res.unauthorized_executions > 0 ? 'var(--color-error)' : 'var(--color-success)', fontWeight: 700 }}>
+                            {res.unauthorized_executions}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
 
-          {/* Benchmark Charts & Safety Guarantees */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 16 }}>
-            <div className="card" style={{ padding: 20 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <TrendingUp size={16} /> Recovered Revenue by Architecture (INR)
-              </h3>
-              <div style={{ height: 260 }}>
+          {/* Charts & Verifiable Guarantees */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 16 }}>
+            {/* Chart: Recovered Revenue Comparison */}
+            <div className="panel">
+              <div className="panel-header">
+                <div className="panel-title">
+                  <TrendingUp size={14} />
+                  <span>Recovered Revenue by Architecture (INR)</span>
+                </div>
+              </div>
+              <div className="panel-body" style={{ height: 220 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
-                    <XAxis dataKey="name" tick={{ fill: 'var(--text-tertiary)', fontSize: 11 }} />
-                    <YAxis tick={{ fill: 'var(--text-tertiary)', fontSize: 11 }} />
+                  <BarChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 16 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fill: 'var(--text-tertiary)', fontSize: 10 }} />
+                    <YAxis tick={{ fill: 'var(--text-tertiary)', fontSize: 10 }} />
                     <Tooltip
-                      formatter={(val) => [`₹${val.toLocaleString('en-IN')}`, 'Recovered Revenue']}
-                      contentStyle={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-medium)', borderRadius: 6 }}
+                      formatter={(val) => [`₹${Number(val).toLocaleString('en-IN')}`, 'Recovered Revenue']}
+                      contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-medium)', borderRadius: 4, fontSize: 11 }}
                     />
-                    <Bar dataKey="recovered" radius={[4, 4, 0, 0]}>
+                    <Bar dataKey="recovered" radius={[2, 2, 0, 0]}>
                       {chartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={SYSTEM_COLORS[entry.type] || '#6366F1'} />
+                        <Cell key={`cell-${index}`} fill={SYSTEM_COLORS[entry.type] || '#4F46E5'} />
                       ))}
                     </Bar>
                   </BarChart>
@@ -211,29 +243,33 @@ export function BenchmarkView() {
               </div>
             </div>
 
-            <div className="card" style={{ padding: 20 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <ShieldCheck size={16} /> Verifiable Safety Guarantees
-              </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 12 }}>
-                <div style={{ padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)', borderLeft: '3px solid var(--color-success)' }}>
-                  <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Architectural Zero Unauthorized Executions</div>
-                  <div style={{ color: 'var(--text-tertiary)', marginTop: 2 }}>
-                    Every financial action passes through deterministic 14-point Policy Guardian. LLM cannot invoke tools directly.
+            {/* Verifiable Safety Guarantees */}
+            <div className="panel">
+              <div className="panel-header">
+                <div className="panel-title">
+                  <ShieldCheck size={14} />
+                  <span>Verifiable Safety Guarantees</span>
+                </div>
+              </div>
+              <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 11 }}>
+                <div style={{ padding: '8px 10px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)', borderLeft: '3px solid var(--color-success)' }}>
+                  <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Zero Unauthorized Executions</div>
+                  <div style={{ color: 'var(--text-tertiary)', marginTop: 1 }}>
+                    All executions pass 14-point Policy Guardian validation.
                   </div>
                 </div>
 
-                <div style={{ padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)', borderLeft: '3px solid var(--color-success)' }}>
-                  <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Deterministic Idempotency Protection</div>
-                  <div style={{ color: 'var(--text-tertiary)', marginTop: 2 }}>
-                    Prevents duplicate messaging, payment link spam, or double-retries on repeated runs.
+                <div style={{ padding: '8px 10px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)', borderLeft: '3px solid var(--color-success)' }}>
+                  <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Deterministic Idempotency</div>
+                  <div style={{ color: 'var(--text-tertiary)', marginTop: 1 }}>
+                    SHA-256 key prevents duplicate customer outreach.
                   </div>
                 </div>
 
-                <div style={{ padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)', borderLeft: '3px solid var(--color-success)' }}>
-                  <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Single-Source Revenue Attribution</div>
-                  <div style={{ color: 'var(--text-tertiary)', marginTop: 2 }}>
-                    Attributed revenue is tied 1:1 to original transactions, eliminating double-counting.
+                <div style={{ padding: '8px 10px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)', borderLeft: '3px solid var(--color-success)' }}>
+                  <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Single-Source Attribution</div>
+                  <div style={{ color: 'var(--text-tertiary)', marginTop: 1 }}>
+                    Revenue attributed 1:1 to original transactions.
                   </div>
                 </div>
               </div>

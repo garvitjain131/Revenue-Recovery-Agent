@@ -5,7 +5,10 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
-  const merchantId = searchParams.get('merchant_id') || 'merchant_rzp_test';
+  let merchantId = searchParams.get('merchant_id');
+  if (!merchantId || merchantId === 'null' || merchantId === 'undefined') {
+    merchantId = 'merchant_rzp_test';
+  }
 
   try {
     const database = db.getDatabase();
@@ -55,10 +58,10 @@ export async function GET(request) {
 
     // 3. Recovery Timeline (Area Chart) - Last 30 days
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const interventions = database.prepare(`
-      SELECT DATE(created_at) as date, SUM(actual_recovery) as recovered
-      FROM interventions
-      WHERE merchant_id = ? AND execution_status = 'success' AND actual_recovery > 0 AND created_at > ?
+    const recoveryAttributions = database.prepare(`
+      SELECT DATE(created_at) as date, SUM(amount_recovered) as recovered
+      FROM recovery_attributions
+      WHERE merchant_id = ? AND created_at >= ?
       GROUP BY DATE(created_at)
       ORDER BY date ASC
     `).all(merchantId, thirtyDaysAgo);
@@ -69,8 +72,8 @@ export async function GET(request) {
       const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
       timelineMap[d] = 0;
     }
-    interventions.forEach(i => {
-      if (timelineMap[i.date] !== undefined) timelineMap[i.date] = i.recovered;
+    recoveryAttributions.forEach(i => {
+      if (timelineMap[i.date] !== undefined) timelineMap[i.date] = Math.round(i.recovered);
     });
 
     const timeline = Object.keys(timelineMap).sort().map(date => ({

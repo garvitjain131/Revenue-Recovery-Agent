@@ -16,7 +16,7 @@ export function Logo({ size = 32 }) {
       aria-hidden="true"
     >
       {/* Background rounded square */}
-      <rect width="32" height="32" rx="8" fill="#6366F1" />
+      <rect width="32" height="32" rx="8" fill="#6A8FB8" />
       
       {/* Bar chart bars */}
       <rect x="6" y="18" width="4" height="8" rx="1" fill="rgba(255,255,255,0.4)" />

@@ -15,6 +15,7 @@
  */
 
 const path = require('path');
+const fs = require('fs');
 
 let db = null;
 
@@ -27,6 +28,24 @@ function getDatabase() {
     db = new Database(dbPath);
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
+
+    // Secure database file permissions (0600 - Owner Read/Write only)
+    try {
+      if (fs.existsSync(dbPath)) {
+        fs.chmodSync(dbPath, 0o600);
+      }
+      const walPath = `${dbPath}-wal`;
+      if (fs.existsSync(walPath)) {
+        fs.chmodSync(walPath, 0o600);
+      }
+      const shmPath = `${dbPath}-shm`;
+      if (fs.existsSync(shmPath)) {
+        fs.chmodSync(shmPath, 0o600);
+      }
+    } catch (permErr) {
+      // Non-fatal if filesystem limits chmod (e.g. some Windows environments)
+    }
+
     initializeSchema(db);
     return db;
   } catch (error) {
@@ -305,6 +324,29 @@ function initializeSchema(database) {
       FOREIGN KEY (evaluation_run_id) REFERENCES evaluation_runs(id)
     );
 
+    CREATE TABLE IF NOT EXISTS contact_history (
+      id TEXT PRIMARY KEY,
+      merchant_id TEXT NOT NULL,
+      customer_id TEXT,
+      opportunity_id TEXT,
+      intervention_id TEXT,
+      channel TEXT NOT NULL,
+      status TEXT NOT NULL,
+      contact_time_utc TEXT NOT NULL,
+      contact_time_ist TEXT NOT NULL,
+      error_reason TEXT,
+      idempotency_key TEXT UNIQUE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (merchant_id) REFERENCES merchants(id),
+      FOREIGN KEY (customer_id) REFERENCES customers(id)
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_attributions_intervention ON recovery_attributions(intervention_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_attributions_opp_payment ON recovery_attributions(opportunity_id, recovered_payment_id) WHERE recovered_payment_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_contact_history_cust ON contact_history(customer_id);
+    CREATE INDEX IF NOT EXISTS idx_contact_history_merch ON contact_history(merchant_id);
+    CREATE INDEX IF NOT EXISTS idx_contact_history_opp ON contact_history(opportunity_id);
+
     CREATE INDEX IF NOT EXISTS idx_payments_merchant ON payments(merchant_id);
     CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
     CREATE INDEX IF NOT EXISTS idx_payments_customer ON payments(customer_id);
@@ -327,6 +369,10 @@ function initializeSchema(database) {
     CREATE INDEX IF NOT EXISTS idx_recovery_attributions_opp ON recovery_attributions(opportunity_id);
     CREATE INDEX IF NOT EXISTS idx_evaluation_results_run ON evaluation_results(evaluation_run_id);
   `);
+
+  try {
+    database.exec("ALTER TABLE merchants ADD COLUMN last_synced_at TEXT;");
+  } catch {}
 }
 
 // ─── Query Helpers ─────────────────────────────────────────────────
@@ -354,13 +400,25 @@ function getRow(table, where = {}) {
   return database.prepare(sql).get(...Object.values(where));
 }
 
-function getRows(table, where = {}, orderBy = 'created_at DESC', limit = 100) {
+function getRows(table, where = {}, orderBy = 'created_at DESC', limit = 100, offset = 0) {
   const database = getDatabase();
+  const safeLimit = Math.min(500, Math.max(1, parseInt(limit, 10) || 100));
+  const safeOffset = Math.max(0, parseInt(offset, 10) || 0);
   const conditions = Object.keys(where).map(k => `${k} = ?`).join(' AND ');
   let sql = `SELECT * FROM ${table}`;
   if (conditions) sql += ` WHERE ${conditions}`;
-  sql += ` ORDER BY ${orderBy} LIMIT ${limit}`;
-  return database.prepare(sql).all(...Object.values(where));
+  sql += ` ORDER BY ${orderBy} LIMIT ? OFFSET ?`;
+  const params = [...Object.values(where), safeLimit, safeOffset];
+  return database.prepare(sql).all(...params);
+}
+
+function countRows(table, where = {}) {
+  const database = getDatabase();
+  const conditions = Object.keys(where).map(k => `${k} = ?`).join(' AND ');
+  let sql = `SELECT COUNT(*) as count FROM ${table}`;
+  if (conditions) sql += ` WHERE ${conditions}`;
+  const result = database.prepare(sql).get(...Object.values(where));
+  return result?.count || 0;
 }
 
 function updateRow(table, data, where) {
@@ -381,13 +439,27 @@ function runExec(sql, params = []) {
   return database.prepare(sql).run(...params);
 }
 
+function withTransaction(fn) {
+  const database = getDatabase();
+  const tx = database.transaction(fn);
+  return tx();
+}
+
+function transaction(fn) {
+  const database = getDatabase();
+  return database.transaction(fn);
+}
+
 module.exports = {
   getDatabase,
   generateId,
   insertRow,
   getRow,
   getRows,
+  countRows,
   updateRow,
   runQuery,
   runExec,
+  withTransaction,
+  transaction,
 };

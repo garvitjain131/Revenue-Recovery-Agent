@@ -1,15 +1,15 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { CheckCircle, XCircle, AlertTriangle, Info } from 'lucide-react';
+import { CheckCircle2, AlertOctagon, AlertTriangle, Info, X } from 'lucide-react';
 
 let toastIdCounter = 0;
 let globalSetToasts = null;
 
-export function showToast(message, type = 'info', duration = 4000) {
+export function showToast(message, type = 'info', duration = 3000) {
   if (globalSetToasts) {
     const id = ++toastIdCounter;
-    globalSetToasts(prev => [...prev, { id, message, type, duration }]);
+    globalSetToasts(prev => [...prev.slice(-2), { id, message, type, duration }]);
     setTimeout(() => {
       globalSetToasts(prev => prev.filter(t => t.id !== id));
     }, duration);
@@ -17,8 +17,8 @@ export function showToast(message, type = 'info', duration = 4000) {
 }
 
 const TOAST_ICONS = {
-  success: CheckCircle,
-  error: XCircle,
+  success: CheckCircle2,
+  error: AlertOctagon,
   warning: AlertTriangle,
   info: Info,
 };
@@ -28,7 +28,6 @@ export function Toast() {
 
   useEffect(() => {
     globalSetToasts = setToasts;
-    // Also expose globally for legacy code
     window.showToast = showToast;
     return () => { globalSetToasts = null; };
   }, []);
@@ -44,10 +43,23 @@ export function Toast() {
       {toasts.map(toast => {
         const IconComponent = TOAST_ICONS[toast.type] || TOAST_ICONS.info;
         return (
-          <div key={toast.id} className={`toast toast-${toast.type}`} onClick={() => dismiss(toast.id)}>
-            <span className="toast-icon"><IconComponent size={18} /></span>
+          <div
+            key={toast.id}
+            className={`toast toast-${toast.type}`}
+            onClick={() => dismiss(toast.id)}
+            style={{ cursor: 'pointer' }}
+          >
+            <span className="toast-icon">
+              <IconComponent size={14} />
+            </span>
             <span className="toast-message">{toast.message}</span>
-            <div className="toast-progress" style={{ animationName: 'shrink', animationDuration: `${toast.duration}ms`, animationTimingFunction: 'linear', animationFillMode: 'forwards' }} />
+            <button
+              style={{ color: 'var(--text-tertiary)', padding: '0 2px' }}
+              onClick={(e) => { e.stopPropagation(); dismiss(toast.id); }}
+              aria-label="Dismiss toast"
+            >
+              <X size={12} />
+            </button>
           </div>
         );
       })}

@@ -39,6 +39,55 @@ function isLiveMode() {
   return getRazorpayClient() !== null;
 }
 
+/**
+ * Execute an asynchronous operation with exponential backoff and jitter.
+ * Retries on transient errors (HTTP 429, 5xx, timeouts, network failures).
+ */
+async function withRetry(operation, options = {}) {
+  const {
+    maxRetries = 3,
+    initialDelayMs = 300,
+    maxDelayMs = 3000,
+    backoffFactor = 2,
+    operationName = 'Razorpay API call',
+  } = options;
+
+  let lastError;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (err) {
+      lastError = err;
+      const status = err.statusCode || err.status;
+      const isRateLimit = status === 429 || (err.message && err.message.includes('429'));
+      const isServerError = typeof status === 'number' && status >= 500 && status < 600;
+      const isNetworkError = err.code === 'ECONNRESET' ||
+        err.code === 'ETIMEDOUT' ||
+        err.code === 'ENOTFOUND' ||
+        err.code === 'ECONNREFUSED' ||
+        (err.message && (
+          err.message.toLowerCase().includes('timeout') ||
+          err.message.toLowerCase().includes('network') ||
+          err.message.toLowerCase().includes('econnreset')
+        ));
+
+      const isRetryable = isRateLimit || isServerError || isNetworkError;
+
+      if (!isRetryable || attempt === maxRetries) {
+        throw err;
+      }
+
+      const baseDelay = Math.min(maxDelayMs, initialDelayMs * Math.pow(backoffFactor, attempt));
+      const jitter = Math.floor(Math.random() * (baseDelay * 0.2));
+      const delay = baseDelay + jitter;
+
+      console.warn(`[Razorpay Adapter] ${operationName} failed (attempt ${attempt + 1}/${maxRetries + 1}): ${err.message}. Retrying in ${delay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  throw lastError;
+}
+
 // ─── Payment Link Operations ───────────────────────────────────
 
 async function createPaymentLink({ amount, customer_name, customer_email, customer_phone, description, reference_id }) {
@@ -46,21 +95,24 @@ async function createPaymentLink({ amount, customer_name, customer_email, custom
 
   if (client) {
     try {
-      const link = await client.paymentLink.create({
-        amount: Math.round(amount * 100), // Razorpay uses paise
-        currency: 'INR',
-        description: description || 'Payment recovery',
-        customer: {
-          name: customer_name || 'Customer',
-          email: customer_email || 'customer@example.com',
-          contact: customer_phone || '9876543210',
-        },
-        notify: { sms: true, email: true },
-        reminder_enable: true,
-        reference_id: reference_id || `rec_${Date.now()}`,
-        callback_url: '',
-        callback_method: 'get',
-      });
+      const link = await withRetry(
+        () => client.paymentLink.create({
+          amount: Math.round(amount * 100), // Razorpay uses paise
+          currency: 'INR',
+          description: description || 'Payment recovery',
+          customer: {
+            name: customer_name || 'Customer',
+            email: customer_email || 'customer@example.com',
+            contact: customer_phone || '9876543210',
+          },
+          notify: { sms: true, email: true },
+          reminder_enable: true,
+          reference_id: reference_id || `rec_${Date.now()}`,
+          callback_url: '',
+          callback_method: 'get',
+        }),
+        { operationName: 'createPaymentLink' }
+      );
 
       return {
         success: true,
@@ -93,7 +145,10 @@ async function fetchPaymentLink(paymentLinkId) {
 
   if (client) {
     try {
-      const link = await client.paymentLink.fetch(paymentLinkId);
+      const link = await withRetry(
+        () => client.paymentLink.fetch(paymentLinkId),
+        { operationName: 'fetchPaymentLink' }
+      );
       return { success: true, data: link, source: 'razorpay_live' };
     } catch (err) {
       console.warn('[Razorpay Live API] fetchPaymentLink error:', err.message);
@@ -120,7 +175,10 @@ async function fetchPayments(options = {}) {
 
   if (client) {
     try {
-      const payments = await client.payments.all(options);
+      const payments = await withRetry(
+        () => client.payments.all(options),
+        { operationName: 'fetchPayments' }
+      );
       return { success: true, data: payments, source: 'razorpay_live' };
     } catch (err) {
       console.warn('[Razorpay Live API] fetchPayments error:', err.message);
@@ -135,7 +193,10 @@ async function fetchPayment(paymentId) {
 
   if (client) {
     try {
-      const payment = await client.payments.fetch(paymentId);
+      const payment = await withRetry(
+        () => client.payments.fetch(paymentId),
+        { operationName: 'fetchPayment' }
+      );
       return { success: true, data: payment, source: 'razorpay_live' };
     } catch (err) {
       console.warn('[Razorpay Live API] fetchPayment error:', err.message);
@@ -155,7 +216,10 @@ async function fetchOrders(options = {}) {
   const client = getRazorpayClient();
   if (client) {
     try {
-      const orders = await client.orders.all(options);
+      const orders = await withRetry(
+        () => client.orders.all(options),
+        { operationName: 'fetchOrders' }
+      );
       return { success: true, data: orders, source: 'razorpay_live' };
     } catch (err) {
       console.warn('[Razorpay Live API] fetchOrders error:', err.message);
@@ -168,7 +232,10 @@ async function fetchCustomers(options = {}) {
   const client = getRazorpayClient();
   if (client) {
     try {
-      const customers = await client.customers.all(options);
+      const customers = await withRetry(
+        () => client.customers.all(options),
+        { operationName: 'fetchCustomers' }
+      );
       return { success: true, data: customers, source: 'razorpay_live' };
     } catch (err) {
       console.warn('[Razorpay Live API] fetchCustomers error:', err.message);
@@ -194,6 +261,7 @@ function verifyWebhookSignature(body, signature) {
 
 module.exports = {
   isLiveMode,
+  withRetry,
   createPaymentLink,
   fetchPaymentLink,
   fetchPayments,

@@ -25,6 +25,7 @@
  */
 
 const crypto = require('crypto');
+const timezone = require('./timezone');
 
 const DEFAULT_GUARDRAILS = {
   max_auto_transaction: 25000,        // ₹25,000 auto-execution limit
@@ -69,6 +70,17 @@ function generateIdempotencyKey(merchant_id, opportunity_id, action_type, attemp
  * @returns {Object} Structured policy result { decision: 'APPROVED'|'REVIEW_REQUIRED'|'BLOCKED', approved: boolean, requires_human: boolean, reason: string, checks: Array }
  */
 function validateAction(recommendation, opportunity, merchant, intervention_history = [], customer = null, options = {}) {
+  // Support flexible argument passing: validateAction(rec, opp, merchant, options)
+  if (intervention_history && !Array.isArray(intervention_history) && typeof intervention_history === 'object') {
+    options = intervention_history;
+    intervention_history = [];
+    customer = null;
+  } else if (customer && typeof customer === 'object' && !customer.id && (customer.currentHour !== undefined || customer.bypassContactHours !== undefined)) {
+    options = customer;
+    customer = null;
+  }
+  options = options || {};
+
   const guardrails = parseGuardrails(merchant.guardrails);
   const checks = [];
   const actionName = recommendation.recommended_action || recommendation.action;
@@ -189,6 +201,21 @@ function validateAction(recommendation, opportunity, merchant, intervention_hist
         contactDetail = `Customer contacted ${hoursSince.toFixed(1)}h ago (minimum gap is ${guardrails.min_hours_between_contacts}h)`;
       }
     }
+
+    // Check daily contact limit in IST
+    if (contactAllowed && Array.isArray(intervention_history) && guardrails.max_daily_contacts_per_customer) {
+      const todayIST = timezone.getISTDayKey(options.date || new Date());
+      const contactsToday = intervention_history.filter(i => {
+        const isContact = ['create_payment_link', 'send_notification', 'request_alternate_payment_method'].includes(i.action_type);
+        if (!isContact || !i.created_at) return false;
+        return timezone.getISTDayKey(i.created_at) === todayIST;
+      }).length;
+
+      if (contactsToday >= guardrails.max_daily_contacts_per_customer) {
+        contactAllowed = false;
+        contactDetail = `Customer reached maximum daily contacts limit (${contactsToday}/${guardrails.max_daily_contacts_per_customer} contacts today IST)`;
+      }
+    }
   }
 
   checks.push({
@@ -198,18 +225,22 @@ function validateAction(recommendation, opportunity, merchant, intervention_hist
     detail: contactDetail,
   });
 
-  // ── 9. Contact-Hour Restrictions (08:00 - 22:00) ────────────────
-  const currentHour = new Date().getHours();
-  const withinContactHours = currentHour >= guardrails.contact_start_hour && currentHour < guardrails.contact_cutoff_hour;
+  // ── 9. Contact-Hour Restrictions (08:00 - 22:00 in Asia/Kolkata IST) ────────────────
+  const currentISTHour = options.currentHour !== undefined 
+    ? options.currentHour 
+    : timezone.getISTHour(options.date || new Date());
+  const withinContactHours = options.bypassContactHours 
+    ? true 
+    : (currentISTHour >= guardrails.contact_start_hour && currentISTHour < guardrails.contact_cutoff_hour);
   const contactHoursPassed = !isContactAction || withinContactHours;
   checks.push({
     rule: 'CONTACT_HOURS',
-    name: 'Contact Hour Boundaries',
+    name: 'Contact Hour Boundaries (IST)',
     passed: contactHoursPassed,
-    actual: `${currentHour}:00`,
-    required: `${guardrails.contact_start_hour}:00 - ${guardrails.contact_cutoff_hour}:00`,
+    actual: `${currentISTHour.toString().padStart(2, '0')}:00 IST`,
+    required: `${guardrails.contact_start_hour.toString().padStart(2, '0')}:00 - ${guardrails.contact_cutoff_hour.toString().padStart(2, '0')}:00 IST`,
     detail: isContactAction
-      ? (contactHoursPassed ? `Current hour (${currentHour}:00) is within allowed window` : `Outbound contact prohibited at ${currentHour}:00`)
+      ? (contactHoursPassed ? `Current hour (${currentISTHour}:00 IST) is within allowed window` : `Outbound contact prohibited at ${currentISTHour}:00 IST`)
       : 'Non-contact action, time check bypassed',
   });
 
@@ -354,4 +385,5 @@ module.exports = {
   generateIdempotencyKey,
   isDuplicateIntervention,
   parseGuardrails,
+  timezone,
 };

@@ -17,7 +17,23 @@
 const { parse } = require('csv-parse/sync');
 const db = require('./database');
 
-// ─── Column Mapping & Validation Rules ─────────────────────────
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+const MAX_ROW_COUNT = 25000;
+
+function sanitizeString(val, maxLen = 255) {
+  if (val === null || val === undefined) return null;
+  return String(val).replace(/\0/g, '').trim().slice(0, maxLen);
+}
+
+function isValidDate(raw) {
+  if (!raw) return true; // optional
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return false;
+  const year = d.getFullYear();
+  const currentYear = new Date().getFullYear();
+  if (year < 2000 || year > currentYear + 1) return false;
+  return true;
+}
 
 const DATA_SCHEMAS = {
   transactions: {
@@ -48,23 +64,30 @@ const DATA_SCHEMAS = {
     },
     targetTable: 'payments',
     transform: (row, merchant_id) => ({
-      id: row.transaction_id,
-      merchant_id,
-      customer_id: row.customer_id || null,
-      amount: parseFloat(row.amount),
-      currency: row.currency || 'INR',
+      id: sanitizeString(row.transaction_id, 100),
+      merchant_id: sanitizeString(merchant_id, 100),
+      customer_id: sanitizeString(row.customer_id, 100) || null,
+      amount: Math.round(parseFloat(row.amount) * 100) / 100,
+      currency: sanitizeString(row.currency, 10) || 'INR',
       status: normalizePaymentStatus(row.payment_status),
       method: normalizePaymentMethod(row.payment_method),
-      failure_reason: row.failure_reason || null,
+      failure_reason: sanitizeString(row.failure_reason, 500) || null,
       captured: normalizePaymentStatus(row.payment_status) === 'captured' ? 1 : 0,
       created_at: normalizeDate(row.timestamp) || new Date().toISOString(),
     }),
     validate: (row) => {
       const errors = [];
-      if (!row.transaction_id) errors.push('missing transaction_id');
-      if (!row.amount || isNaN(parseFloat(row.amount))) errors.push('invalid amount');
-      if (parseFloat(row.amount) < 0) errors.push('negative amount');
-      if (!row.payment_status) errors.push('missing payment_status');
+      if (!row.transaction_id || !sanitizeString(row.transaction_id)) errors.push('missing transaction_id');
+      const amt = parseFloat(row.amount);
+      if (row.amount === undefined || row.amount === null || isNaN(amt) || !isFinite(amt)) {
+        errors.push('invalid amount');
+      } else if (amt <= 0) {
+        errors.push('amount must be positive');
+      } else if (amt > 100000000) {
+        errors.push('amount exceeds maximum threshold');
+      }
+      if (!row.payment_status || !sanitizeString(row.payment_status)) errors.push('missing payment_status');
+      if (row.timestamp && !isValidDate(row.timestamp)) errors.push('invalid timestamp');
       return errors;
     },
   },
@@ -88,11 +111,11 @@ const DATA_SCHEMAS = {
     },
     targetTable: 'customers',
     transform: (row, merchant_id) => ({
-      id: row.customer_id,
-      merchant_id,
-      name: row.name || null,
-      email: row.email || null,
-      phone: row.phone || null,
+      id: sanitizeString(row.customer_id, 100),
+      merchant_id: sanitizeString(merchant_id, 100),
+      name: sanitizeString(row.name, 150) || null,
+      email: sanitizeString(row.email, 150) || null,
+      phone: sanitizeString(row.phone, 30) || null,
       total_payments: 0,
       successful_payments: 0,
       failed_payments: 0,
@@ -102,7 +125,14 @@ const DATA_SCHEMAS = {
     }),
     validate: (row) => {
       const errors = [];
-      if (!row.customer_id) errors.push('missing customer_id');
+      if (!row.customer_id || !sanitizeString(row.customer_id)) errors.push('missing customer_id');
+      if (row.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(row.email).trim())) {
+        errors.push('invalid email format');
+      }
+      if (row.phone && !/^[0-9+\s\-()]{5,30}$/.test(String(row.phone).trim())) {
+        errors.push('invalid phone format');
+      }
+      if (row.created_at && !isValidDate(row.created_at)) errors.push('invalid created_at');
       return errors;
     },
   },
@@ -126,19 +156,28 @@ const DATA_SCHEMAS = {
     },
     targetTable: 'orders',
     transform: (row, merchant_id) => ({
-      id: row.order_id,
-      merchant_id,
-      customer_id: row.customer_id || null,
-      product_name: row.product_name || null,
-      quantity: parseInt(row.quantity) || 1,
-      order_amount: parseFloat(row.order_amount),
-      order_status: row.order_status || 'completed',
+      id: sanitizeString(row.order_id, 100),
+      merchant_id: sanitizeString(merchant_id, 100),
+      customer_id: sanitizeString(row.customer_id, 100) || null,
+      product_name: sanitizeString(row.product_name, 200) || null,
+      quantity: Math.max(1, parseInt(row.quantity, 10) || 1),
+      order_amount: Math.round(parseFloat(row.order_amount) * 100) / 100,
+      order_status: sanitizeString(row.order_status, 50) || 'completed',
       created_at: normalizeDate(row.timestamp) || new Date().toISOString(),
     }),
     validate: (row) => {
       const errors = [];
-      if (!row.order_id) errors.push('missing order_id');
-      if (!row.order_amount || isNaN(parseFloat(row.order_amount))) errors.push('invalid order_amount');
+      if (!row.order_id || !sanitizeString(row.order_id)) errors.push('missing order_id');
+      const amt = parseFloat(row.order_amount);
+      if (row.order_amount === undefined || row.order_amount === null || isNaN(amt) || !isFinite(amt)) {
+        errors.push('invalid order_amount');
+      } else if (amt <= 0) {
+        errors.push('order_amount must be positive');
+      }
+      if (row.quantity !== undefined && row.quantity !== null && (isNaN(parseInt(row.quantity, 10)) || parseInt(row.quantity, 10) < 1)) {
+        errors.push('invalid quantity');
+      }
+      if (row.timestamp && !isValidDate(row.timestamp)) errors.push('invalid timestamp');
       return errors;
     },
   },
@@ -163,22 +202,27 @@ const DATA_SCHEMAS = {
     },
     targetTable: 'cart_events',
     transform: (row, merchant_id) => ({
-      id: row.cart_id,
-      merchant_id,
-      customer_id: row.customer_id || null,
-      product_name: row.product_name || null,
-      cart_value: parseFloat(row.cart_value) || 0,
+      id: sanitizeString(row.cart_id, 100),
+      merchant_id: sanitizeString(merchant_id, 100),
+      customer_id: sanitizeString(row.customer_id, 100) || null,
+      product_name: sanitizeString(row.product_name, 200) || null,
+      cart_value: Math.max(0, parseFloat(row.cart_value) || 0),
       event_type: normalizeCartEvent(row.event_type),
       created_at: normalizeDate(row.timestamp) || new Date().toISOString(),
     }),
     validate: (row) => {
       const errors = [];
-      if (!row.cart_id) errors.push('missing cart_id');
-      if (!row.event_type) errors.push('missing event_type');
+      if (!row.cart_id || !sanitizeString(row.cart_id)) errors.push('missing cart_id');
+      if (!row.event_type || !sanitizeString(row.event_type)) errors.push('missing event_type');
       const validEvents = ['added', 'checkout_started', 'purchased', 'abandoned'];
       if (row.event_type && !validEvents.includes(normalizeCartEvent(row.event_type))) {
         errors.push(`invalid event_type: ${row.event_type}`);
       }
+      if (row.cart_value !== undefined && row.cart_value !== null) {
+        const val = parseFloat(row.cart_value);
+        if (isNaN(val) || !isFinite(val) || val < 0) errors.push('invalid cart_value');
+      }
+      if (row.timestamp && !isValidDate(row.timestamp)) errors.push('invalid timestamp');
       return errors;
     },
   },
@@ -203,25 +247,39 @@ const DATA_SCHEMAS = {
       'created_at': 'timestamp',
     },
     targetTable: 'discounts',
-    transform: (row, merchant_id) => ({
-      id: row.discount_id,
-      merchant_id,
-      order_id: row.order_id || null,
-      customer_id: row.customer_id || null,
-      original_amount: parseFloat(row.original_amount),
-      discount_amount: parseFloat(row.discount_amount),
-      final_amount: row.final_amount
+    transform: (row, merchant_id) => {
+      const orig = parseFloat(row.original_amount);
+      const disc = parseFloat(row.discount_amount);
+      const fin = row.final_amount !== undefined && row.final_amount !== null && !isNaN(parseFloat(row.final_amount))
         ? parseFloat(row.final_amount)
-        : parseFloat(row.original_amount) - parseFloat(row.discount_amount),
-      discount_code: row.discount_code || null,
-      created_at: normalizeDate(row.timestamp) || new Date().toISOString(),
-    }),
+        : Math.max(0, orig - disc);
+      return {
+        id: sanitizeString(row.discount_id, 100),
+        merchant_id: sanitizeString(merchant_id, 100),
+        order_id: sanitizeString(row.order_id, 100) || null,
+        customer_id: sanitizeString(row.customer_id, 100) || null,
+        original_amount: Math.round(orig * 100) / 100,
+        discount_amount: Math.round(disc * 100) / 100,
+        final_amount: Math.round(fin * 100) / 100,
+        discount_code: sanitizeString(row.discount_code, 100) || null,
+        created_at: normalizeDate(row.timestamp) || new Date().toISOString(),
+      };
+    },
     validate: (row) => {
       const errors = [];
-      if (!row.discount_id) errors.push('missing discount_id');
-      if (!row.original_amount || isNaN(parseFloat(row.original_amount))) errors.push('invalid original_amount');
-      if (!row.discount_amount || isNaN(parseFloat(row.discount_amount))) errors.push('invalid discount_amount');
-      if (parseFloat(row.discount_amount) > parseFloat(row.original_amount)) errors.push('discount exceeds original amount');
+      if (!row.discount_id || !sanitizeString(row.discount_id)) errors.push('missing discount_id');
+      const orig = parseFloat(row.original_amount);
+      const disc = parseFloat(row.discount_amount);
+      if (row.original_amount === undefined || row.original_amount === null || isNaN(orig) || !isFinite(orig) || orig <= 0) {
+        errors.push('invalid original_amount');
+      }
+      if (row.discount_amount === undefined || row.discount_amount === null || isNaN(disc) || !isFinite(disc) || disc < 0) {
+        errors.push('invalid discount_amount');
+      }
+      if (!isNaN(orig) && !isNaN(disc) && disc > orig) {
+        errors.push('discount exceeds original amount');
+      }
+      if (row.timestamp && !isValidDate(row.timestamp)) errors.push('invalid timestamp');
       return errors;
     },
   },
@@ -328,6 +386,21 @@ function ingestCSV(csvContent, dataType, merchant_id, fileName = 'upload.csv') {
     };
   }
 
+  if (!csvContent || typeof csvContent !== 'string') {
+    return {
+      success: false,
+      error: 'CSV content is empty or invalid.',
+    };
+  }
+
+  const byteLength = Buffer.byteLength(csvContent, 'utf8');
+  if (byteLength > MAX_FILE_SIZE_BYTES) {
+    return {
+      success: false,
+      error: `CSV file size (${(byteLength / (1024 * 1024)).toFixed(2)}MB) exceeds maximum allowed limit of 10MB.`,
+    };
+  }
+
   // Parse CSV
   let rawRows;
   try {
@@ -348,6 +421,13 @@ function ingestCSV(csvContent, dataType, merchant_id, fileName = 'upload.csv') {
     return {
       success: false,
       error: 'CSV file contains no data rows.',
+    };
+  }
+
+  if (rawRows.length > MAX_ROW_COUNT) {
+    return {
+      success: false,
+      error: `CSV row count (${rawRows.length}) exceeds maximum allowed limit of ${MAX_ROW_COUNT} rows.`,
     };
   }
 
@@ -473,16 +553,16 @@ function buildInsertStatement(database, table, sampleRow) {
 function updateCustomerAggregates(merchant_id) {
   try {
     const database = db.getDatabase();
-    database.exec(`
+    database.prepare(`
       UPDATE customers SET
-        total_payments = COALESCE((SELECT COUNT(*) FROM payments WHERE payments.customer_id = customers.id AND payments.merchant_id = '${merchant_id}'), 0),
-        successful_payments = COALESCE((SELECT COUNT(*) FROM payments WHERE payments.customer_id = customers.id AND payments.merchant_id = '${merchant_id}' AND payments.status = 'captured'), 0),
-        failed_payments = COALESCE((SELECT COUNT(*) FROM payments WHERE payments.customer_id = customers.id AND payments.merchant_id = '${merchant_id}' AND payments.status = 'failed'), 0),
-        total_spent = COALESCE((SELECT SUM(amount) FROM payments WHERE payments.customer_id = customers.id AND payments.merchant_id = '${merchant_id}' AND payments.status = 'captured'), 0),
-        lifetime_value = COALESCE((SELECT SUM(amount) FROM payments WHERE payments.customer_id = customers.id AND payments.merchant_id = '${merchant_id}' AND payments.status = 'captured'), 0),
-        last_payment_at = (SELECT MAX(created_at) FROM payments WHERE payments.customer_id = customers.id AND payments.merchant_id = '${merchant_id}')
-      WHERE customers.merchant_id = '${merchant_id}'
-    `);
+        total_payments = COALESCE((SELECT COUNT(*) FROM payments WHERE payments.customer_id = customers.id AND payments.merchant_id = ?), 0),
+        successful_payments = COALESCE((SELECT COUNT(*) FROM payments WHERE payments.customer_id = customers.id AND payments.merchant_id = ? AND payments.status = 'captured'), 0),
+        failed_payments = COALESCE((SELECT COUNT(*) FROM payments WHERE payments.customer_id = customers.id AND payments.merchant_id = ? AND payments.status = 'failed'), 0),
+        total_spent = COALESCE((SELECT SUM(amount) FROM payments WHERE payments.customer_id = customers.id AND payments.merchant_id = ? AND payments.status = 'captured'), 0),
+        lifetime_value = COALESCE((SELECT SUM(amount) FROM payments WHERE payments.customer_id = customers.id AND payments.merchant_id = ? AND payments.status = 'captured'), 0),
+        last_payment_at = (SELECT MAX(created_at) FROM payments WHERE payments.customer_id = customers.id AND payments.merchant_id = ?)
+      WHERE customers.merchant_id = ?
+    `).run(merchant_id, merchant_id, merchant_id, merchant_id, merchant_id, merchant_id, merchant_id);
   } catch (err) {
     console.error('[Ingestion] Customer aggregates update failed:', err.message);
   }
@@ -557,6 +637,13 @@ function ingestJSON(jsonData, dataType, merchant_id, fileName = 'api_sync') {
     return {
       success: false,
       error: 'Data is empty or not an array.',
+    };
+  }
+
+  if (jsonData.length > MAX_ROW_COUNT) {
+    return {
+      success: false,
+      error: `Record count (${jsonData.length}) exceeds maximum allowed limit of ${MAX_ROW_COUNT} records.`,
     };
   }
 

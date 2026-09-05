@@ -6,7 +6,10 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
-  const merchantId = searchParams.get('merchant_id') || 'merchant_rzp_test';
+  let merchantId = searchParams.get('merchant_id');
+  if (!merchantId || merchantId === 'null' || merchantId === 'undefined') {
+    merchantId = 'merchant_rzp_test';
+  }
 
   try {
     const database = db.getDatabase();

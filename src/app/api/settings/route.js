@@ -10,7 +10,10 @@ export async function GET(request) {
   try {
     const db = require('@/lib/database');
     const { searchParams } = new URL(request.url);
-    const merchant_id = searchParams.get('merchant_id') || 'merchant_rzp_test';
+    let merchant_id = searchParams.get('merchant_id');
+    if (!merchant_id || merchant_id === 'null' || merchant_id === 'undefined') {
+      merchant_id = 'merchant_rzp_test';
+    }
     const merchant = db.getRow('merchants', { id: merchant_id });
     if (!merchant) {
       return NextResponse.json({ error: 'Merchant not found' }, { status: 404 });

@@ -103,9 +103,9 @@ function detectPaymentFailures(merchant_id) {
   // Build opportunities
   const opportunities = [];
 
-  // Opportunity: High-value individual failures
+  // Opportunity: High-value individual failures (up to 50 per scan)
   const highValueFailed = scoredPayments.filter(p => p.amount >= 500 && p.recovery_probability >= 0.4);
-  for (const payment of highValueFailed.slice(0, 10)) {
+  for (const payment of highValueFailed.slice(0, 50)) {
     const evidence = [];
     const customer = payment.customer_id ? db.getRow('customers', { id: payment.customer_id }) : null;
     if (customer) {

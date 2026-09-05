@@ -6,7 +6,7 @@ import { ActivitySkeleton } from './Skeletons';
 import {
   Activity, CheckCircle, XCircle, Clock, Search, Link2, Mail,
   RefreshCw, Target, Microscope, ClipboardList, Zap, DollarSign,
-  Play, AlertTriangle, Inbox
+  Play, AlertTriangle, Inbox, Brain, ShieldCheck, FileSearch
 } from 'lucide-react';
 
 function timeAgo(ts) {
@@ -22,36 +22,39 @@ function timeAgo(ts) {
   return `${days}d ago`;
 }
 
-const ICON_MAP = {
-  completed: CheckCircle,
-  success: CheckCircle,
-  recovered: DollarSign,
-  error: XCircle,
-  failed: XCircle,
-  pending: Clock,
-  investigating: Search,
-  create_payment_link: Link2,
-  send_notification: Mail,
-  retry_payment: RefreshCw,
-  opportunity_detected: Target,
-  opportunity_analyzed: Microscope,
-  intervention_created: ClipboardList,
-  intervention_executed: Zap,
-  recovery_confirmed: DollarSign,
-  agent_run_started: Play,
-  agent_run_completed: CheckCircle,
+// ═══ Feature #8: Type-based icon and color mapping ═══
+
+const TYPE_CATEGORIES = {
+  // Detection types
+  opportunity_detected: { category: 'detection', icon: Target, color: 'var(--color-brand-light)', label: 'Detection' },
+  agent_run_started: { category: 'detection', icon: Play, color: 'var(--color-brand-light)', label: 'Detection' },
+
+  // Diagnosis types
+  opportunity_analyzed: { category: 'diagnosis', icon: Microscope, color: 'var(--color-warning)', label: 'Diagnosis' },
+  investigating: { category: 'diagnosis', icon: Search, color: 'var(--color-warning)', label: 'Diagnosis' },
+
+  // Action types
+  intervention_created: { category: 'action', icon: ClipboardList, color: 'hsl(210, 100%, 60%)', label: 'Action' },
+  intervention_executed: { category: 'action', icon: Zap, color: 'hsl(210, 100%, 60%)', label: 'Action' },
+  create_payment_link: { category: 'action', icon: Link2, color: 'hsl(210, 100%, 60%)', label: 'Action' },
+  send_notification: { category: 'action', icon: Mail, color: 'hsl(210, 100%, 60%)', label: 'Action' },
+  retry_payment: { category: 'action', icon: RefreshCw, color: 'hsl(210, 100%, 60%)', label: 'Action' },
+  pending: { category: 'action', icon: Clock, color: 'hsl(210, 100%, 60%)', label: 'Action' },
+
+  // Recovery types
+  recovery_confirmed: { category: 'recovery', icon: DollarSign, color: 'var(--color-success)', label: 'Recovery' },
+  recovered: { category: 'recovery', icon: DollarSign, color: 'var(--color-success)', label: 'Recovery' },
+  completed: { category: 'recovery', icon: CheckCircle, color: 'var(--color-success)', label: 'Recovery' },
+  success: { category: 'recovery', icon: CheckCircle, color: 'var(--color-success)', label: 'Recovery' },
+  agent_run_completed: { category: 'recovery', icon: ShieldCheck, color: 'var(--color-success)', label: 'Recovery' },
+
+  // Error types
+  error: { category: 'error', icon: XCircle, color: 'var(--color-error)', label: 'Error' },
+  failed: { category: 'error', icon: XCircle, color: 'var(--color-error)', label: 'Error' },
 };
 
-function getIcon(type) {
-  const IconComponent = ICON_MAP[type] || Activity;
-  return <IconComponent size={16} />;
-}
-
-function getVariant(type) {
-  if (['completed', 'success', 'recovered', 'recovery_confirmed', 'agent_run_completed'].includes(type)) return 'success';
-  if (['error', 'failed'].includes(type)) return 'error';
-  if (['pending', 'investigating'].includes(type)) return 'warning';
-  return '';
+function getTypeInfo(type) {
+  return TYPE_CATEGORIES[type] || { category: 'detection', icon: Activity, color: 'var(--text-tertiary)', label: 'Event' };
 }
 
 export function ActivityFeed() {
@@ -117,19 +120,41 @@ export function ActivityFeed() {
               <p>No activity yet. Run the agent to start.</p>
             </div>
           )}
-          {filtered.map((activity, idx) => (
-            <div
-              key={activity.id || idx}
-              className={`activity-item ${getVariant(activity.type)}`}
-              style={{ animation: `slideIn 0.3s ease ${idx * 30}ms forwards`, opacity: 0 }}
-            >
-              <div className="activity-icon">{getIcon(activity.type)}</div>
-              <div className="activity-content">
-                <div className="activity-title">{activity.message || activity.type?.replace(/_/g, ' ') || 'Activity'}</div>
-                <div className="activity-timestamp">{timeAgo(activity.timestamp)}</div>
+          {filtered.map((activity, idx) => {
+            const typeInfo = getTypeInfo(activity.type);
+            const IconComponent = typeInfo.icon;
+
+            return (
+              <div
+                key={activity.id || idx}
+                className={`activity-item type-${typeInfo.category}`}
+                style={{ animation: `slideIn 0.3s ease ${idx * 30}ms forwards`, opacity: 0 }}
+              >
+                <div className="activity-icon" style={{ color: typeInfo.color }}>
+                  <IconComponent size={16} />
+                </div>
+                <div className="activity-content">
+                  <div className="activity-title">
+                    {activity.message || activity.type?.replace(/_/g, ' ') || 'Activity'}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        color: typeInfo.color,
+                        letterSpacing: '0.04em',
+                      }}
+                    >
+                      {typeInfo.label}
+                    </span>
+                    <span className="activity-timestamp">{timeAgo(activity.timestamp)}</span>
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

@@ -18,7 +18,10 @@ export async function GET(request) {
     const policy = require('@/lib/policy-engine');
 
     const { searchParams } = new URL(request.url);
-    const merchant_id = searchParams.get('merchant_id') || 'merchant_rzp_test';
+    let merchant_id = searchParams.get('merchant_id');
+    if (!merchant_id || merchant_id === 'null' || merchant_id === 'undefined') {
+      merchant_id = 'merchant_rzp_test';
+    }
 
     // 1. Merchant Profile & Policy Guardrails
     const merchant = db.getRow('merchants', { id: merchant_id }) || {
@@ -29,54 +32,94 @@ export async function GET(request) {
     };
     const guardrails = policy.parseGuardrails(merchant.guardrails);
 
-    // 2. Payments & Financial Metrics
-    const allPayments = db.runQuery(
-      'SELECT amount, status, method, failure_reason, created_at FROM payments WHERE merchant_id = ? ORDER BY created_at DESC',
+    // 2. Payments & Financial Metrics via SQL aggregation
+    const paymentMetrics = db.runQuery(
+      `SELECT 
+        COUNT(*) as total_payments,
+        COALESCE(SUM(amount), 0) as total_processed,
+        COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failed_count,
+        COALESCE(SUM(CASE WHEN status = 'failed' THEN amount ELSE 0 END), 0) as revenue_at_risk,
+        COALESCE(SUM(CASE WHEN status IN ('captured', 'authorized') THEN 1 ELSE 0 END), 0) as successful_count,
+        COALESCE(SUM(CASE WHEN status IN ('captured', 'authorized') THEN amount ELSE 0 END), 0) as successful_volume
+      FROM payments WHERE merchant_id = ?`,
       [merchant_id]
-    );
+    )[0] || {
+      total_payments: 0,
+      total_processed: 0,
+      failed_count: 0,
+      revenue_at_risk: 0,
+      successful_count: 0,
+      successful_volume: 0,
+    };
 
-    const totalProcessed = allPayments.reduce((s, p) => s + p.amount, 0);
-    const failedPayments = allPayments.filter(p => p.status === 'failed');
-    const successfulPayments = allPayments.filter(p => p.status === 'captured' || p.status === 'authorized');
-    
-    const revenueAtRisk = failedPayments.reduce((s, p) => s + p.amount, 0);
-    const totalSuccessfulRevenue = successfulPayments.reduce((s, p) => s + p.amount, 0);
-    const failureRate = allPayments.length > 0 ? (failedPayments.length / allPayments.length) : 0;
+    const totalProcessed = Math.round(paymentMetrics.total_processed * 100) / 100;
+    const revenueAtRisk = Math.round(paymentMetrics.revenue_at_risk * 100) / 100;
+    const totalPaymentsCount = paymentMetrics.total_payments || 0;
+    const failedPaymentsCount = paymentMetrics.failed_count || 0;
+    const failureRate = totalPaymentsCount > 0 ? (failedPaymentsCount / totalPaymentsCount) : 0;
 
-    // 3. Opportunities
+    // 3. Opportunities Metrics via SQL
+    const oppMetrics = db.runQuery(
+      `SELECT 
+        COUNT(*) as total_opps,
+        COALESCE(SUM(CASE WHEN status != 'blocked' THEN expected_recovery ELSE 0 END), 0) as recoverable_revenue,
+        COALESCE(SUM(CASE WHEN status NOT IN ('recovered', 'not_recovered') THEN 1 ELSE 0 END), 0) as active_opps_count
+      FROM opportunities WHERE merchant_id = ?`,
+      [merchant_id]
+    )[0] || { total_opps: 0, recoverable_revenue: 0, active_opps_count: 0 };
+
+    const recoverableRevenue = Math.round(oppMetrics.recoverable_revenue * 100) / 100;
+    const totalOppsCount = oppMetrics.total_opps || 0;
+    const activeOppsCount = oppMetrics.active_opps_count || 0;
+
     const opportunities = db.runQuery(
-      'SELECT * FROM opportunities WHERE merchant_id = ? ORDER BY revenue_at_risk DESC LIMIT 30',
+      'SELECT * FROM opportunities WHERE merchant_id = ? ORDER BY revenue_at_risk DESC LIMIT 50',
       [merchant_id]
     );
 
-    const recoverableRevenue = opportunities
-      .filter(o => o.status !== 'blocked')
-      .reduce((s, o) => s + (o.expected_recovery || 0), 0);
-
-    // 4. Single-Source Revenue Attribution & Interventions
-    const attributions = db.runQuery(
-      'SELECT * FROM recovery_attributions WHERE merchant_id = ? ORDER BY created_at DESC',
+    // 4. Single-Source Revenue Attribution & Interventions via SQL
+    const attrMetrics = db.runQuery(
+      `SELECT 
+        COUNT(*) as total_attributions,
+        COALESCE(SUM(amount_recovered), 0) as total_recovered_revenue
+      FROM recovery_attributions WHERE merchant_id = ?`,
       [merchant_id]
-    );
-    const totalRecoveredRevenue = attributions.reduce((s, a) => s + a.amount_recovered, 0);
+    )[0] || { total_attributions: 0, total_recovered_revenue: 0 };
 
-    const interventions = db.runQuery(
-      'SELECT * FROM interventions WHERE merchant_id = ? ORDER BY created_at DESC LIMIT 30',
+    const totalRecoveredRevenue = Math.round(attrMetrics.total_recovered_revenue * 100) / 100;
+    const totalAttributionsCount = attrMetrics.total_attributions || 0;
+
+    const intervMetrics = db.runQuery(
+      `SELECT 
+        COUNT(*) as executed_count,
+        COALESCE(SUM(expected_recovery), 0) as addressed_revenue
+      FROM interventions WHERE merchant_id = ? AND execution_status = 'executed'`,
       [merchant_id]
-    );
-    const executedInterventions = interventions.filter(i => i.execution_status === 'executed');
-    const addressedRevenue = executedInterventions.reduce((s, i) => s + (i.expected_recovery || 0), 0);
-    const totalInterventionCost = executedInterventions.length * 2.0; // ₹2 average cost per intervention
+    )[0] || { executed_count: 0, addressed_revenue: 0 };
+
+    const executedInterventionsCount = intervMetrics.executed_count || 0;
+    const addressedRevenue = Math.round(intervMetrics.addressed_revenue * 100) / 100;
+    const totalInterventionCost = executedInterventionsCount * 2.0; // ₹2 average cost per intervention
     const netRecoveredRevenue = Math.max(0, totalRecoveredRevenue - totalInterventionCost);
     const recoveryRate = revenueAtRisk > 0 ? (totalRecoveredRevenue / revenueAtRisk) : 0;
 
+    const interventions = db.runQuery(
+      'SELECT * FROM interventions WHERE merchant_id = ? ORDER BY created_at DESC LIMIT 50',
+      [merchant_id]
+    );
+
+    const attributions = db.runQuery(
+      'SELECT * FROM recovery_attributions WHERE merchant_id = ? ORDER BY created_at DESC LIMIT 50',
+      [merchant_id]
+    );
+
     // 5. Recovery Funnel Data
     const funnel = [
-      { stage: 'Processed', label: 'Revenue Processed', value: totalProcessed, count: allPayments.length, isCurrency: true },
-      { stage: 'At Risk', label: 'Revenue At Risk', value: revenueAtRisk, count: failedPayments.length, isCurrency: true },
-      { stage: 'Recoverable', label: 'Recoverable Revenue', value: Math.round(recoverableRevenue), count: opportunities.length, isCurrency: true },
-      { stage: 'Addressed', label: 'Interventions Executed', value: Math.round(addressedRevenue), count: executedInterventions.length, isCurrency: true },
-      { stage: 'Recovered', label: 'Revenue Recovered', value: totalRecoveredRevenue, count: attributions.length, isCurrency: true },
+      { stage: 'Processed', label: 'Revenue Processed', value: totalProcessed, count: totalPaymentsCount, isCurrency: true },
+      { stage: 'At Risk', label: 'Revenue At Risk', value: revenueAtRisk, count: failedPaymentsCount, isCurrency: true },
+      { stage: 'Recoverable', label: 'Recoverable Revenue', value: Math.round(recoverableRevenue), count: totalOppsCount, isCurrency: true },
+      { stage: 'Addressed', label: 'Interventions Executed', value: Math.round(addressedRevenue), count: executedInterventionsCount, isCurrency: true },
+      { stage: 'Recovered', label: 'Revenue Recovered', value: totalRecoveredRevenue, count: totalAttributionsCount, isCurrency: true },
     ];
 
     // 6. Pending Approvals
@@ -124,13 +167,17 @@ export async function GET(request) {
         revenue_at_risk: revenueAtRisk,
         recoverable_revenue: Math.round(recoverableRevenue),
         total_recovered: totalRecoveredRevenue,
+        revenue_recovered: totalRecoveredRevenue,
         net_recovered: netRecoveredRevenue,
+        net_recovery: netRecoveredRevenue,
         recovery_rate: recoveryRate,
         failure_rate: failureRate,
-        total_payments: allPayments.length,
-        failed_count: failedPayments.length,
-        recovered_count: attributions.length,
-        active_opportunities_count: opportunities.filter(o => o.status !== 'recovered' && o.status !== 'not_recovered').length,
+        total_payments: totalPaymentsCount,
+        failed_count: failedPaymentsCount,
+        recovered_count: totalAttributionsCount,
+        recoverable_count: totalOppsCount,
+        interventions_count: executedInterventionsCount,
+        active_opportunities_count: activeOppsCount,
       },
       budget: {
         daily_budget: dailyBudget,
